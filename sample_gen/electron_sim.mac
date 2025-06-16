@@ -1,0 +1,41 @@
+####################################################################
+#
+# Generate electrons in liquid argon
+# using the Geant4 General Particle Source (GPS).
+# This macro sets up the GPS to generate electrons with a variety of energies
+# and directions, simulating a realistic experimental setup.
+####################################################################
+# Physics changes to match with 2x2_beam.mac
+/edep/hitSeparation LArBox_lv -1 mm
+/edep/db/set/neutronThreshold 0 MeV
+/edep/db/set/lengthThreshold 0 mm
+/edep/db/set/gammaThreshold 0 MeV
+/edep/update
+
+# Define the particle and its energy (uniform energy distribution).
+/gps/particle e-
+/gps/ene/type Lin
+/gps/ene/gradient 0
+/gps/ene/intercept 1
+/gps/ene/min 100 MeV
+/gps/ene/max 1000 MeV
+
+# Set the position of the particle gun -- just emit from the origin.
+/gps/pos/type Point
+/gps/position 0 0 0 cm
+
+# This generates the direction of the photon.  This aims
+# the particle downstream with the directions uniformly distributed in
+# a 180 deg cone around the Z axis.
+#/gps/ang/type iso
+#/gps/ang/maxtheta 180 deg
+#/gps/ang/rot1 1 0 0
+#/gps/ang/rot2 0 1 0
+
+/edep/db/set/requireEventsWithHits true
+/tracking/storeTrajectory 1
+
+#/control/verbose 2
+#/run/verbose 2
+#/event/verbose 2
+#/tracking/verbose 1

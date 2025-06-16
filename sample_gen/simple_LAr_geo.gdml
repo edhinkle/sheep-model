@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="ASCII"?>
+<gdml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://service-spi.web.cern.ch/service-spi/app/releases/GDML/schema/gdml.xsd">
+  <define>
+    <position name="LArInfD_pos" unit="cm" x="0.0" y="0.0" z="0.0"/>
+    <rotation name="identity"/>
+  </define>
+  <materials>
+    <element name="argon" formula="Ar" Z="18">
+			<atom value="39.948"/>
+		</element>
+  	<material name="LAr">
+		  <D value="1.396" unit="g/cm3"/>
+		  <composite ref="argon" n="1"/>
+	  </material>
+  </materials>
+  <solids>
+    <box name="LArInfD" x="10000.0" y="10000.0" z="10000.0" lunit="cm"/>
+  </solids>
+  <structure>
+    <volume name="LArBox_lv">
+      <materialref ref="LAr"/>
+      <solidref ref="LArInfD"/>
+      <auxiliary auxtype="SensDet" auxvalue="LArBox_lv"/>
+      <auxiliary auxtype="Color" auxvalue="(1.0,0.0,0.0,0.5)"/>
+    </volume>
+    <volume name="LArInfD_lv">
+      <materialref ref="LAr"/>
+      <solidref ref="LArInfD"/>
+      <physvol>
+        <volumeref ref="LArBox_lv"/>
+        <positionref ref="LArInfD_pos"/>
+        <rotationref ref="identity"/>
+      </physvol>
+      <auxiliary auxtype="StepLimit" auxValue="0.2 cm"/>
+      <auxiliary auxtype="Color" auxvalue="(1.0,0.0,0.0,0.5)"/>
+    </volume>
+  </structure>
+  <setup name="Default" version="1.0">
+    <world ref="LArInfD_lv"/>
+  </setup>
+</gdml>
