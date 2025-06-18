@@ -300,6 +300,10 @@ def dump(input_file, output_file):# keep_all_dets=True):
                     event_infos[iEvt]["pdg_id"] = trajectory.GetPDGCode()
                     event_infos[iEvt]["E_start"] = np.sqrt(np.sum(np.square(p_start)) + mass**2)
                     event_infos[iEvt]["pxyz_start"] = p_start
+                    if event_infos[iEvt]["xyz_start"][0] - start_pt.GetPosition().X() * edep2cm > 1E-4 or \
+                       event_infos[iEvt]["xyz_start"][1] - start_pt.GetPosition().Y() * edep2cm > 1E-4 or \
+                       event_infos[iEvt]["xyz_start"][2] - start_pt.GetPosition().Z() * edep2cm > 1E-4:
+                        print("WARNING: event_infos['xyz_start'] does not match starting trajectory start point for event_id:", globalVertexID)
 
                 trajectories[n_traj]["pxyz_start"] = p_start #(start_pt.GetMomentum().X(), start_pt.GetMomentum().Y(), start_pt.GetMomentum().Z())
                 trajectories[n_traj]["pxyz_end"] = p_end #(end_pt.GetMomentum().X(), end_pt.GetMomentum().Y(), end_pt.GetMomentum().Z())
