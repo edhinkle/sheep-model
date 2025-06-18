@@ -7,6 +7,9 @@
 ####################################################################
 # Physics changes to match with 2x2_beam.mac
 /edep/hitSeparation LArBox_lv -1 mm
+/edep/hitLength LArBox_lv 0.00001 mm
+/process/eLoss/StepFunction 0.001 0.01 mm
+/process/eLoss/StepFunctionMuHad 0.001 0.01 mm
 /edep/db/set/neutronThreshold 0 MeV
 /edep/db/set/lengthThreshold 0 mm
 /edep/db/set/gammaThreshold 0 MeV

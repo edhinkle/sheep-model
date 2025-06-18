@@ -31,7 +31,7 @@
         <positionref ref="LArInfD_pos"/>
         <rotationref ref="identity"/>
       </physvol>
-      <auxiliary auxtype="StepLimit" auxValue="0.2 cm"/>
+      <auxiliary auxtype="StepLimit" auxValue="1 mm"/>
       <auxiliary auxtype="Color" auxvalue="(1.0,0.0,0.0,0.5)"/>
     </volume>
   </structure>
