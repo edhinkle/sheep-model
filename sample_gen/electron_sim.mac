@@ -7,9 +7,9 @@
 ####################################################################
 # Physics changes to match with 2x2_beam.mac
 /edep/hitSeparation LArBox_lv -1 mm
-/edep/hitLength LArBox_lv 0.00001 mm
-/process/eLoss/StepFunction 0.001 0.01 mm
-/process/eLoss/StepFunctionMuHad 0.001 0.01 mm
+/edep/hitLength LArBox_lv 0.0001 mm
+/process/eLoss/StepFunction 0.001 0.05 mm
+/process/eLoss/StepFunctionMuHad 0.001 0.05 mm
 /edep/db/set/neutronThreshold 0 MeV
 /edep/db/set/lengthThreshold 0 mm
 /edep/db/set/gammaThreshold 0 MeV
@@ -20,7 +20,7 @@
 /gps/ene/type Lin
 /gps/ene/gradient 0
 /gps/ene/intercept 1
-/gps/ene/min 100 MeV
+/gps/ene/min 0 MeV
 /gps/ene/max 1000 MeV
 
 # Set the position of the particle gun -- just emit from the origin.
