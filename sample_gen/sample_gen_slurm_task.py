@@ -10,7 +10,7 @@ SLURM_NODEID = int(os.environ['SLURM_NODEID'])
 SLURM_LOCALID = int(os.environ['SLURM_LOCALID']) # the local task ID on the node
 GLOBAL_TASK_ID = SLURM_NODEID * SLURM_NTASKS_PER_NODE + SLURM_LOCALID
 
-nfiles = 20
+nfiles = 40
 nevents = 50
 
 
