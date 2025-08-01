@@ -192,6 +192,23 @@ def updateHDF5File(output_file, trajectories, segments, events):#, vertices, gen
                 f['events'].resize((nevt+len(events),))
                 f['events'][nevt:] = events
 
+def addReferences(output_file):
+    """
+    Add references to segments in the HDF5 file.
+    This is a post-hoc operation to create a reference dataset for segments.
+    """
+    with h5py.File(output_file, 'a') as f:
+        if 'segments_ref' not in f:
+            ref_dtype = h5py.special_dtype(ref=h5py.RegionReference)
+            f.create_dataset('segments_ref', shape=len(f['events']), dtype=ref_dtype)
+
+            offset = 0
+            for i in range(len(f['events'])):
+                length = int(np.sum(f['segments']['event_id'] == f['events']['event_id'][i]))
+                region_ref = f['segments'].regionref[offset:offset + length]
+                f['segments_ref'][i] = region_ref
+                offset += length
+
 
 # Read a file and dump it -- keep_all_dets set to True for Shower Studies
 def dump(input_file, output_file):# keep_all_dets=True):
@@ -433,6 +450,9 @@ def dump(input_file, output_file):# keep_all_dets=True):
         np.concatenate(trajectories_list, axis=0) if trajectories_list else np.empty((0,)),
         np.concatenate(segments_list, axis=0) if segments_list else np.empty((0,)),
         np.concatenate(events_list, axis=0) if events_list else np.empty((0,)))
+    
+    # Add references to segments
+    addReferences(output_file)
 
 if __name__ == "__main__":
     fire.Fire(dump)
