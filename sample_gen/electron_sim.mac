@@ -21,7 +21,8 @@
 /gps/ene/gradient 0
 /gps/ene/intercept 1
 /gps/ene/min 10 MeV
-/gps/ene/max 1000 MeV
+/gps/ene/max 2000 MeV
+# Changed energy distribution to be smaller range for now
 
 # Set the position of the particle gun -- just emit from the origin.
 /gps/pos/type Point
