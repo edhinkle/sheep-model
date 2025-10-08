@@ -13,6 +13,7 @@ from utils.data_loader import get_data_loader
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
+import csv
 
 # models
 import models.sheep_cnn
@@ -54,13 +55,21 @@ class Trainer():
             if not os.path.isdir(exp_dir):
                 os.makedirs(exp_dir)
                 os.makedirs(os.path.join(exp_dir, 'checkpoints/'))
+                os.makedirs(os.path.join(exp_dir, 'logs/'))
         self.params['experiment_dir'] = os.path.abspath(exp_dir)
         self.params['checkpoint_path'] = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
+        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_train_log.csv'.format(self.run_num, self.config))
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
     def launch(self):
         exp_dir = os.path.join(*[self.results_dir, self.config, self.run_num])
         self.init_exp_dir(exp_dir)
+
+        # Set up logging to file
+        if self.world_rank == 0 and self.params['resuming']==False:
+            with open(self.params['log_path'], 'w') as f:
+                writer = csv.writer(f)
+                writer.writerow(['epoch', 'train_iter', 'train_loss', 'val_loss', 'train_time', 'val_time'])
 
         self.params['global_batch_size'] = self.params.batch_size
         self.params['local_batch_size'] = int(self.params.batch_size//self.world_size)
@@ -77,9 +86,17 @@ class Trainer():
 
         # distributed wrapper for data parallel
         if dist.is_initialized():
+            # Get model ready for distributed training
             self.model = DistributedDataParallel(self.model,
                                                 device_ids=[self.local_rank],
                                                 output_device=[self.local_rank])
+            
+            # Check that each rank has the same number of batches
+            local_len = torch.tensor([len(self.train_data_loader)], device=self.device)
+            world_lens = [torch.zeros_like(local_len) for _ in range(dist.get_world_size())]
+            dist.all_gather(world_lens, local_len)
+            if self.world_rank == 0 and self.log_to_screen:
+                print("Train loader lengths per rank:", [int(t.item()) for t in world_lens])
 
 
         # set an optimizer and learning rate scheduler
@@ -88,7 +105,8 @@ class Trainer():
         self.scheduler = None #lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.params.max_cosine_lr_epochs)
 
         # set loss functions
-        self.loss_func = torch.nn.MSELoss()
+        if params.loss_fn == 'MSELoss':
+            self.loss_func = torch.nn.MSELoss()
 
         # checkpointing
         self.iters = 0
@@ -115,12 +133,20 @@ class Trainer():
             if dist.is_initialized():
                 # shuffles data before every epoch
                 self.train_sampler.set_epoch(epoch)
+                self.valid_sampler.set_epoch(epoch) # <-- added for validation shuffling
             start = time.time()
 
             # training
             tr_time  = self.train_one_epoch()
+
+            if dist.is_initialized():
+                dist.barrier()  # <-- align all ranks following training on one epoch
+
             # validation
             val_time = self.val_one_epoch()
+
+            if dist.is_initialized():
+                dist.barrier()  # <-- align all ranks following validation on one epoch
 
             # learning rate scheduler
             #self.scheduler.step()
@@ -140,6 +166,9 @@ class Trainer():
                 if self.world_rank == 0:
                     #checkpoint at the end of every epoch
                     self.save_checkpoint(self.params.checkpoint_path, is_best=is_best_loss)
+                    with open(self.params['log_path'], 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow([self.epoch, self.iters, self.logs['train_loss'], self.logs['val_loss'], tr_time, val_time])
 
             # some print statements
             if self.log_to_screen:
@@ -219,9 +248,17 @@ class Trainer():
     def save_checkpoint(self, checkpoint_path, is_best=False, model=None):
         if not model:
             model = self.model
+
+        # Save persistent checkpoints for every fifth epoch
+        if self.epoch % 5 == 0 and self.epoch > 0:
+            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict(), 'scheduler_state_dict': (self.scheduler.state_dict() if self.scheduler is not None else None)}, checkpoint_path.replace('.tar', '_epoch_{}_iters{}.tar'.format(self.epoch, self.iters)))
+        
+        # Always save the latest checkpoint (overwritten every epoch)
         torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict(), 'scheduler_state_dict': (self.scheduler.state_dict() if self.scheduler is not None else None)}, checkpoint_path)
+        
+        # If best epoch, save a copy of the best checkpoint
         if is_best:
-            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict(), 'scheduler_state_dict': (self.scheduler.state_dict() if  self.scheduler is not None else None)}, checkpoint_path.replace('.tar', '_best.tar'))
+            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict(), 'scheduler_state_dict': (self.scheduler.state_dict() if  self.scheduler is not None else None)}, checkpoint_path.replace('.tar', '_epoch_{}_iters_{}_best.tar'.format(self.epoch, self.iters)))
 
     def restore_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.local_rank)) 

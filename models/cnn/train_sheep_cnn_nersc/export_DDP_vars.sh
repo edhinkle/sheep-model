@@ -18,3 +18,11 @@ export WORLD_RANK=$SLURM_PROCID
 export LOCAL_RANK=$SLURM_LOCALID
 export WORLD_SIZE=$SLURM_NTASKS
 export MASTER_PORT=29500 # default from torch launcher
+
+# DDP debug flags
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export TORCH_DISTRIBUTED_DEBUG=DETAIL
+export NCCL_DEBUG=INFO
+export PYTHONFAULTHANDLER=1
+# Optional, to rule out fabric quirks briefly (slower):
+# export NCCL_IB_DISABLE=1

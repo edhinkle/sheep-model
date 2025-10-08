@@ -21,7 +21,7 @@ import glob
 def get_data_loader(params, data_location, distributed, train=True):
     dataset = ShowerDataset(params, data_location)
     # define a sampler for distributed training using DDP
-    sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
+    sampler = DistributedSampler(dataset, shuffle=train, drop_last=True) if distributed else None
     if train:
         batch_size = params.local_batch_size
     else:
@@ -33,7 +33,8 @@ def get_data_loader(params, data_location, distributed, train=True):
                             sampler=sampler,
                             collate_fn=shower_collate_fn,
                             drop_last=True,
-                            pin_memory=torch.cuda.is_available())
+                            pin_memory=torch.cuda.is_available(), 
+                            timeout=120) # timeout to prevent hanging
     return dataloader, sampler
 
 

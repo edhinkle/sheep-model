@@ -14,10 +14,12 @@ default: &default
   # optimization
   lr: 0.001
   optimizer: 'Adam'
-  max_epochs: 10
-  max_cosine_lr_epochs: 10
+  max_epochs: 3
+  max_cosine_lr_epochs: 3
   batch_size: 200
-  valid_batch_size: 100
+  valid_batch_size: 200
+  # Loss function
+  loss_fn: 'MSELoss'
   # misc
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
@@ -43,4 +45,6 @@ default: &default
 
 test:  # inherit configs from the alias default
   <<: *default
-  batch_size: 50
+  batch_size: 200
+  # Energy scaled to /1000 for training stability
+  energy_scaled: 1000.0
