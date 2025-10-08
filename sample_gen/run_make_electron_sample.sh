@@ -12,6 +12,6 @@ echo "Setting to 2x2 sim container for running edep-sim."
 shifter --image=mjkramer/sim2x2:ndlar011 --module=cvmfs -- /bin/bash << EOF1
 set +o posix
 source /opt/environment
-chmod +x make_edep_sim_sample.sh
-./make_edep_sim_sample.sh ${GEOMETRY} ${OUTPUT} ${NEVENTS} ${EDEP_MACRO} ${OUTDIR} ${INDIR} ${FILE_INDEX}
+chmod +x make_edep_sim_electron_sample.sh
+./make_edep_sim_electron_sample.sh ${GEOMETRY} ${OUTPUT} ${NEVENTS} ${EDEP_MACRO} ${OUTDIR} ${INDIR} ${FILE_INDEX}
 EOF1
