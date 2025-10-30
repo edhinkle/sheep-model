@@ -19,17 +19,18 @@ import glob
 
 # Get data loader
 def get_data_loader(params, data_location, distributed, train=True):
-    dataset = ShowerDataset(params, data_location)
+    """Function to get the data loader for training/validation/testing."""
+    mode = 'train' if train else 'valid'
+    # Only freeze eval poses for validation/testing
+    dataset = ShowerDataset(params, data_location, mode=mode, freeze_eval_poses=not train)
     # define a sampler for distributed training using DDP
     sampler = DistributedSampler(dataset, shuffle=train, drop_last=True) if distributed else None
-    if train:
-        batch_size = params.local_batch_size
-    else:
-        batch_size = params.local_valid_batch_size
+    batch_size = int(params.local_batch_size if train else params.local_valid_batch_size)
+
     dataloader = DataLoader(dataset,
-                            batch_size=int(batch_size),
+                            batch_size=batch_size,
                             num_workers=params.num_data_workers,
-                            shuffle=(sampler is None),
+                            shuffle=(sampler is None and train), # Don't shuffle validation/test data
                             sampler=sampler,
                             collate_fn=shower_collate_fn,
                             drop_last=True,
@@ -81,15 +82,36 @@ def shower_collate_fn(batch):
 
 class ShowerDataset(Dataset):
          
-    def __init__(self, params, data_location):
+    def __init__(self, params, data_location, mode='train', freeze_eval_poses=True, eval_poses_per_event=1):
+
+        """
+        Args:
+            params:                Parameters from yaml file
+            data_location:         Path to dataset directory
+            mode:                  'train' | 'valid' | 'test' 
+            freeze_eval_poses:     If True, use fixed poses for validation/testing (deterministic evaluation)
+            eval_poses_per_event:  Evaluation poses per event (average later); only used if freeze_eval_poses is True
+        """
+
+        self.mode = mode
+        self.freeze_eval_poses = freeze_eval_poses
+        self.eval_poses_per_event = eval_poses_per_event
 
         self._file_dir = data_location
         self._set_dataset_file_list()  # Get list of files in dataset directory
         self._set_events_per_file()  # Get number of events per file + file indices
+
         self._start_pos_range = np.array(params.start_xyz_range)  # Range for sampling random start position
         self._detector_active_regions = np.array(params.detector_active_regions)
-        self._RANDOM_SEED = params.random_seed
+        self._RANDOM_SEED = int(params.random_seed)
         self._voxel_size = np.array(params.voxel_size)
+        self._min_visible_energy = params.min_visible_energy  # For numerical stability in MinkowskiEngine (Minimum energy target) 
+        self._fid_vol_cut = params.fid_vol_cut  # Fiducial volume cut in cm
+
+        # Get min and max bounds for each detector module
+        self._min_bounds = self._detector_active_regions[:, 0, :] # Shape (M, 3) where M is the number of detector modules/active volumes
+        self._max_bounds = self._detector_active_regions[:, 1, :] # Shape (M, 3) where M is the number of detector modules/active volumes
+
         # Set min/max coordinates and number of voxels
         self._min_xyz = np.array([np.min(self._detector_active_regions[:, :, 0]), 
                                   np.min(self._detector_active_regions[:, :, 1]),
@@ -98,21 +120,21 @@ class ShowerDataset(Dataset):
                                   np.max(self._detector_active_regions[:, :, 1]),
                                   np.max(self._detector_active_regions[:, :, 2])])
         self._num_voxels = np.ceil((self._max_xyz - self._min_xyz) / self._voxel_size).astype(int)
-        self._min_visible_energy = params.min_visible_energy  # For numerical stability in MinkowskiEngine (Minimum energy target) 
-        self._fid_vol_cut = params.fid_vol_cut  # Fiducial volume cut in cm
 
-        # Get min and max bounds for each detector module
-        self._min_bounds = self._detector_active_regions[:, 0, :] # Shape (M, 3) where M is the number of detector modules/active volumes
-        self._max_bounds = self._detector_active_regions[:, 1, :] # Shape (M, 3) where M is the number of detector modules/active volumes
 
         # Set random seeds for reproducibility
-        np.random.seed(self._RANDOM_SEED)
-        torch.manual_seed(self._RANDOM_SEED)
+        # Use local generators vs. global to avoid interference between workers and encourage reproducibility
+        self._train_rng = np.random.default_rng(self._RANDOM_SEED)
+        #np.random.seed(self._RANDOM_SEED)
+        #torch.manual_seed(self._RANDOM_SEED)
 
         # Set torch device
         #self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         #print(f"Using device: {self._device}")
         #torch.device(self._device)
+
+        # In-memory cache so we only compute a valid pose once per (event_id, pose_idx) -- used for eval only
+        self._eval_pose_cache = {}  # key: (event_id, pose_idx) -> (visible_segments, ve_frac, mg_frac, oob_frac)
 
 
     def __len__(self):
@@ -120,44 +142,58 @@ class ShowerDataset(Dataset):
 
     def __getitem__(self, idx):
 
-        file_idx, event_idx = self._decode_idx(idx)  # Decode the global index into file and event indices
+        file_idx, event_local_idx = self._decode_idx(idx)  # Decode the global index into file and event indices
         h5_file_name = self._file_list[file_idx]
-        h5_file = h5py.File(h5_file_name, 'r')  # Open the HDF5 file
-        file_events = h5_file['events']  # Access the events dataset
-        file_segments = h5_file['segments']
-        file_segments_refs = h5_file['segments_ref']
-        event = file_events[event_idx]
-        event_id = event['event_id']
-        segments = file_segments[file_segments_refs[event_id]]
-        true_KE_initial = np.sqrt(np.sum(np.square(event['pxyz_start'])))
-        #if true_KE_initial < 20:
-        #    print("Initial KE:", true_KE_initial)
-        #    print("Total dE:", np.sum(segments['dE']))  # Debugging line to check total dE for the event
-        visible_segments, visible_energy_fraction, module_gap_energy_fraction, out_of_det_bounds_energy_fraction = self._get_filtered_segments(segments, true_KE_initial, self._min_visible_energy)
+        with h5py.File(h5_file_name, 'r') as h5_file:  # Open the HDF5 file
+            file_events = h5_file['events']  # Access the events dataset
+            file_segments = h5_file['segments']
+            file_segments_refs = h5_file['segments_ref']
 
+            event = file_events[event_local_idx]
+            event_id = int(event['event_id'])
+            segments = file_segments[file_segments_refs[event_id]]
+
+            true_KE_initial = float(np.sqrt(np.sum(np.square(event['pxyz_start']))))
+            #if true_KE_initial < 20:
+            #    print("Initial KE:", true_KE_initial)
+            #    print("Total dE:", np.sum(segments['dE']))  # Debugging line to check total dE for the event
+
+            if self.mode == 'train':
+                rng = self._train_rng
+                # Get filtered segments for training
+                vis_segs, ve_frac, mg_frac, oob_frac = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
+            else:
+                # For validation/testing, use deterministic poses
+                if self.freeze_eval_poses:
+                    key = (event_id, 0) # pose_idx = 0 until expanding to >1 poses per event
+                    if key not in self._eval_pose_cache:
+                        rng = self._get_deterministic_rng_per_event(event_id, pose_idx=0)
+                        self._eval_pose_cache[key] = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
+                    # Retrieve from cache
+                    vis_segs, ve_frac, mg_frac, oob_frac = self._eval_pose_cache[key]
+                else:
+                    # Non-deterministic eval poses (different each epoch -- NOT ideal)
+                    rng = self._train_rng
+                    vis_segs, ve_frac, mg_frac, oob_frac = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
         #filtered_segments = transformed_segments[segments_det_mask]
         
         # Voxelize the filtered segments SPARSELY
-        coords, features = self._voxelize_sparse(visible_segments)
+        coords, features = self._voxelize_sparse(vis_segs)
 
         # Convert coords, features, labels, to PyTorch tensors
         coords = torch.from_numpy(coords).contiguous()  # Keep as int32 for voxel indices
         features = torch.from_numpy(features).contiguous()  # Already float32
         combined_data = torch.cat([coords.float(), features], dim=1)  # Convert coords to float only for concatenation
 
-        true_KE_initial = torch.tensor(true_KE_initial, dtype=torch.float32)
-        
-
-        # Take log of true KE initial for training
-        true_KE_initial = true_KE_initial / 1000.0 #torch.log(true_KE_initial) #
+        true_KE_initial_tensor = torch.tensor(true_KE_initial / 1000.0, dtype=torch.float32)
 
         # Convert energy fractions to torch tensors
-        visible_energy_fraction = torch.tensor(visible_energy_fraction, dtype=torch.float32)
-        module_gap_energy_fraction = torch.tensor(module_gap_energy_fraction, dtype=torch.float32)
-        out_of_det_bounds_energy_fraction = torch.tensor(out_of_det_bounds_energy_fraction, dtype=torch.float32)
+        ve_frac_tensor = torch.tensor(ve_frac, dtype=torch.float32)
+        mg_frac_tensor = torch.tensor(mg_frac, dtype=torch.float32)
+        oob_frac_tensor = torch.tensor(oob_frac, dtype=torch.float32)
 
-        return combined_data, true_KE_initial, visible_energy_fraction, module_gap_energy_fraction, out_of_det_bounds_energy_fraction
-
+        return combined_data, true_KE_initial_tensor, ve_frac_tensor, mg_frac_tensor, oob_frac_tensor
+    
     # Method to get file_idx, event_idx pair from global idx
     def _decode_idx(self, idx):
         """Decode a global index into a file index and an event index."""
@@ -165,16 +201,21 @@ class ShowerDataset(Dataset):
         #print("File index:", file_idx)  # Debugging line to check file index
         event_idx = idx - self._event_total_by_file[file_idx]  # Find the event index within that file
         return file_idx, event_idx
+    
+    # Set deterministic rng per event for validation/testing
+    def _get_deterministic_rng_per_event(self, event_id: int, pose_idx: int=0):
+        """Get a deterministic random number generator for a given event and pose index for cross-epoch stability"""
+        mixed_seed = (self._RANDOM_SEED * 1_000_0003) ^ (int(event_id) * 97) ^ (pose_idx * 1_000_000 + 1337)
+        return np.random.default_rng(np.uint64(mixed_seed & 0xFFFFFFFFFFFFFFFF))  # Ensure seed fits in uint64
 
     # Method to convert random start position and start direction to set of filtered visible depositions
-    def _get_filtered_segments(self, segments, true_KE_initial, min_visible_energy=5):
+    def _get_filtered_segments(self, rng, segments, true_KE_initial, min_visible_energy=5):
         ''' Method to convert random start position and start direction to set of filtered visible depositions
-        Inputs:d
-            - start_pos: 3D vector of the start position of the shower (x, y, z)
-            - rotation_matrix: 3x3 rotation matrix representing the desired start direction of the shower
-            - segments: array of segments with dE, x, y, z
-            - det_bounds: array of detector bounds for each detector module [[[xmin1, ymin1, zmin1], [xmax1, ymax1, zmax1]],
-                                                                             [[xmin2, ymin2, zmin2], [xmax2, ymax2, zmax2]], ...] 
+        Inputs:
+            - rng: random number generator (different for train/val/test for reproducibility)
+            - segments: array of segments with dE, x, y, z 
+            - true_KE_initial: initial kinetic energy of the shower (for calculating visible energy fraction)
+            - min_visible_energy: minimum visible energy required (in MeV)
         Outputs:
             - transformed segments: array of segments with transformed positions
             - in_any_volume: boolean array indicating whether each segment is within any detector volume
@@ -185,15 +226,13 @@ class ShowerDataset(Dataset):
         segment_positions = np.array([segments['x'], segments['y'], segments['z']]).T # Shape (N, 3) where N is the number of segments
         segment_energy = np.array([segments['dE']]).T  # Shape (N, 1) where N is the number of segments
 
-        visible_energy_fraction = 0.0
-
         # Sample a random start position and rotation matrix until the visible energy fraction is above the minimum threshold
         # This ensures that the sampled shower has enough visible energy depositions in the detector volumes
         # TO-DO: Figure out how to sample start position and rotation matrix such that the visible energy fraction is above the minimum threshold more often on first try
         for _ in range(5000):
 
-            start_pos = self._sample_random_start_position()  # Sample a random start position
-            rotation_matrix = self._sample_random_rotation_matrix()  # Sample a random rotation matrix
+            start_pos = self._sample_random_start_position(rng)  # Sample a random start position
+            rotation_matrix = self._sample_random_rotation_matrix(rng)  # Sample a random rotation matrix
 
             #print("A few segment positions:", segment_positions[:5])  # Debugging line to check segment positions
             #transformed_segments_xyz = segment_positions @ rotation_matrix.T + start_pos # Shape (N, 3) where N is the number of segments
@@ -211,9 +250,6 @@ class ShowerDataset(Dataset):
             # Check visible energy depositions
             visible_energy = np.sum(segment_energy[in_any_volume])  # Sum the energy depositions of visible segments
         
-            visible_energy_fraction = visible_energy / true_KE_initial  # Calculate the fraction of visible energy compared to the initial kinetic energy
-            #print(f"Warning: Not enough visible energy ({visible_energy} / {min_visible_energy*true_KE_initial}) for event with initial KE {true_KE_initial}. Resampling...")  # Debugging line
-
             #if visible_energy_fraction >= min_visible_energy:
             if visible_energy >= min_visible_energy:
                 break
@@ -221,16 +257,19 @@ class ShowerDataset(Dataset):
         # Get visible energy fraction, module gap energy fraction, and uncontained energy fraction
         # visible_energy_fraction is calculated above
 
-        # Module gap energy fraction
+        # Module gap energy 
         in_abs_det_bounds = np.all((transformed_segments_xyz[:, :] >= self._min_xyz) &
                                    (transformed_segments_xyz[:, :] <= self._max_xyz), axis=1)
         in_mod_gaps = in_abs_det_bounds & ~in_any_volume
         module_gap_energy = np.sum(segment_energy[in_mod_gaps])
-        module_gap_energy_fraction = module_gap_energy / true_KE_initial
 
-        # Uncontained energy fraction
+        # Uncontained energy 
         out_of_detector = ~in_abs_det_bounds
         out_of_det_bounds_energy = np.sum(segment_energy[out_of_detector])
+
+        # Calculate energy fractions
+        visible_energy_fraction = visible_energy / true_KE_initial  # Calculate the fraction of visible energy compared to the initial kinetic energy
+        module_gap_energy_fraction = module_gap_energy / true_KE_initial
         out_of_det_bounds_energy_fraction = out_of_det_bounds_energy / true_KE_initial
 
         #print("Length of masks:", len(in_abs_det_bounds))
@@ -258,14 +297,15 @@ class ShowerDataset(Dataset):
         visible_segments['z'] = visible_xyz[:, 2]  # Fill the z coordinate
 
         return visible_segments, visible_energy_fraction, module_gap_energy_fraction, out_of_det_bounds_energy_fraction
-    
+
     # Method to get uniformly randomly sampled directions
-    def _sample_random_rotation_matrix(self):
-        """Generate a random rotation matrix"""
+    def _sample_random_rotation_matrix(self, rng):
+        """Generate a random rotation matrix -- rng depends on train/val/test mode for reproducibility"""
+
 
         # Step 1: Uniform spherical sampling (use z->theta to reduce oversampling at poles) 
-        phi = np.random.uniform(0, 2 * np.pi)
-        z = np.random.uniform(-1, 1)
+        phi = rng.uniform(0, 2 * np.pi)
+        z = rng.uniform(-1, 1)
         theta = np.arccos(z) 
 
         # Step 2: Get direction vector
@@ -277,13 +317,10 @@ class ShowerDataset(Dataset):
         ])
 
         # Step 3: Get random "roll" angle (rotation around direction vector axis)
-        psi = np.random.uniform(0, 2 * np.pi)
+        psi = rng.uniform(0, 2 * np.pi)
 
         # Step 4: Create orthonormal basis using direction vector and two additional vectors
-        if abs(direction[0]) < 0.99:
-            v = np.array([1, 0, 0])
-        else:
-            v = np.array([0, 1, 0])
+        v = np.array([1, 0, 0]) if abs(direction[0]) < 0.99 else np.array([0, 1, 0])
 
         u1 = np.cross(v, direction)
         u1 /= np.linalg.norm(u1)
@@ -300,18 +337,21 @@ class ShowerDataset(Dataset):
         return rotation_matrix
     
     # Method to get random start position
-    def _sample_random_start_position(self):
-        """Sample a random start position within the given range"""
-        #x_start = np.random.uniform(self._start_pos_range[0][0], self._start_pos_range[1][0])
-        #y_start = np.random.uniform(self._start_pos_range[0][1], self._start_pos_range[1][1])
-        #z_start = np.random.uniform(self._start_pos_range[0][2], self._start_pos_range[1][2])
+    def _sample_random_start_position(self, rng):
+        """Sample a random start position within the given range -- rng depends on train/val/test mode for reproducibility"""
+        #x_start = rng.uniform(self._start_pos_range[0][0], self._start_pos_range[1][0])
+        #y_start = rng.uniform(self._start_pos_range[0][1], self._start_pos_range[1][1])
+        #z_start = rng.uniform(self._start_pos_range[0][2], self._start_pos_range[1][2])
 
         # restrict start position to the detector active regions
         num_modules = len(self._detector_active_regions)
-        module_idx = np.random.randint(0, num_modules)  # Randomly select a detector module
-        x_start = np.random.uniform(self._detector_active_regions[module_idx, 0, 0]+self._fid_vol_cut, self._detector_active_regions[module_idx, 1, 0]-self._fid_vol_cut)
-        y_start = np.random.uniform(self._detector_active_regions[module_idx, 0, 1]+self._fid_vol_cut, self._detector_active_regions[module_idx, 1, 1]-self._fid_vol_cut)
-        z_start = np.random.uniform(self._detector_active_regions[module_idx, 0, 2]+self._fid_vol_cut, self._detector_active_regions[module_idx, 1, 2]-self._fid_vol_cut)
+        module_idx = rng.integers(0, num_modules)  # Randomly select a detector module
+        x_start = rng.uniform(self._detector_active_regions[module_idx, 0, 0]+self._fid_vol_cut, 
+                              self._detector_active_regions[module_idx, 1, 0]-self._fid_vol_cut)
+        y_start = rng.uniform(self._detector_active_regions[module_idx, 0, 1]+self._fid_vol_cut, 
+                              self._detector_active_regions[module_idx, 1, 1]-self._fid_vol_cut)
+        z_start = rng.uniform(self._detector_active_regions[module_idx, 0, 2]+self._fid_vol_cut, 
+                              self._detector_active_regions[module_idx, 1, 2]-self._fid_vol_cut)
 
         return np.array([x_start, y_start, z_start])
     
