@@ -50,6 +50,7 @@ class Trainer():
         self.params = params
         print("running on rank {} with world size {}".format(self.world_rank, self.world_size))
 
+
     def init_exp_dir(self, exp_dir):
         if self.world_rank==0:
             if not os.path.isdir(exp_dir):
@@ -77,9 +78,9 @@ class Trainer():
         self.params['local_valid_batch_size'] = int(self.params.valid_batch_size//self.world_size)
 
         # get the dataloaders
-        self.train_data_loader, self.train_sampler = get_data_loader(self.params, self.params.train_path, dist.is_initialized(), train=True)
+        self.train_data_loader, self.train_sampler = get_data_loader(self.params, self.params.train_path, dist.is_initialized(), train=True, freeze_eval_poses=True)
         #self.test_data_loader, self.test_sampler = get_data_loader(self.params, self.params.test_path, dist.is_initialized(), train=False)
-        self.val_data_loader, self.valid_sampler = get_data_loader(self.params, self.params.val_path, dist.is_initialized(), train=False)
+        self.val_data_loader, _ = get_data_loader(self.params, self.params.val_path, dist.is_initialized(), train=False, freeze_eval_poses=True)
 
         # get the model
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
@@ -133,7 +134,7 @@ class Trainer():
             if dist.is_initialized():
                 # shuffles data before every epoch
                 self.train_sampler.set_epoch(epoch)
-                self.valid_sampler.set_epoch(epoch) # <-- added for validation shuffling
+                #self.valid_sampler.set_epoch(epoch) # <-- Got rid of valid sampler
             start = time.time()
 
             # training
@@ -143,7 +144,7 @@ class Trainer():
                 dist.barrier()  # <-- align all ranks following training on one epoch
 
             # validation
-            val_time = self.val_one_epoch()
+            val_time = self.val_one_epoch_from_multi_pose_cache()
 
             if dist.is_initialized():
                 dist.barrier()  # <-- align all ranks following validation on one epoch
@@ -236,6 +237,44 @@ class Trainer():
                 self.logs['val_loss'] += loss.detach()
 
         self.logs['val_loss'] /= len(self.val_data_loader)
+        if dist.is_initialized():
+            for key in ['val_loss']:
+                dist.all_reduce(self.logs[key].detach())
+                self.logs[key] = float(self.logs[key]/dist.get_world_size())
+
+        val_time = time.time() - val_start
+
+        return val_time
+    
+    def val_one_epoch_from_multi_pose_cache(self):
+        self.model.eval()
+        val_start = time.time()
+        total_loss = 0.0
+        total_events = 0
+
+        logs_buff = torch.zeros((1), dtype=torch.float32, device=self.device)
+        self.logs['val_loss'] = logs_buff[0].view(-1)
+        if self.log_to_screen:
+            print("Starting validation from multi-pose cache with {} batches".format(len(self.cached_val_data_loader)))
+
+        with torch.no_grad():
+            for (poses, label, VE_frac, MG_frac, OOB_frac) in self.cached_val_data_loader:
+                # Set batch size to 1:
+                poses = poses[0] # k tensors [N, K]
+                label = label[0].to(self.device) # tensor [N]
+
+                pose_losses = []
+                for combined_data in poses:
+                    inputs = combined_data.to(self.device)
+                    outputs = self.model(inputs)
+                    loss = self.loss_func(outputs, label)
+                    pose_losses.append(loss.detach().item())
+
+                total_loss += float(np.mean(pose_losses))
+                total_events += 1
+
+        self.logs['val_loss'] = total_loss / max(total_events, 1)
+
         if dist.is_initialized():
             for key in ['val_loss']:
                 dist.all_reduce(self.logs[key].detach())

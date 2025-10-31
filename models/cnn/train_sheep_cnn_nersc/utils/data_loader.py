@@ -6,6 +6,10 @@ from torch.utils.data.distributed import DistributedSampler
 import numpy as np
 import sys
 import subprocess
+import os
+import json
+import math
+import torch.distributed as dist
 
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -18,26 +22,53 @@ except ImportError:
 import glob
 
 # Get data loader
-def get_data_loader(params, data_location, distributed, train=True):
+def get_data_loader(params, data_location, distributed, train=True, test=False):
     """Function to get the data loader for training/validation/testing."""
-    mode = 'train' if train else 'valid'
-    # Only freeze eval poses for validation/testing
-    dataset = ShowerDataset(params, data_location, mode=mode, freeze_eval_poses=not train)
-    # define a sampler for distributed training using DDP
-    sampler = DistributedSampler(dataset, shuffle=train, drop_last=True) if distributed else None
-    batch_size = int(params.local_batch_size if train else params.local_valid_batch_size)
+    mode = 'train' if train else 'valid' if not test else 'test'
 
-    dataloader = DataLoader(dataset,
-                            batch_size=batch_size,
-                            num_workers=params.num_data_workers,
-                            shuffle=(sampler is None and train), # Don't shuffle validation/test data
-                            sampler=sampler,
-                            collate_fn=shower_collate_fn,
-                            drop_last=True,
-                            pin_memory=torch.cuda.is_available(), 
-                            timeout=120) # timeout to prevent hanging
+    if train or not 'valid':
+        # Only freeze eval poses for validation/testing
+        freeze_eval_poses = False
+        dataset = ShowerDataset(params, data_location, mode=mode, freeze_eval_poses=freeze_eval_poses)
+        # define a sampler for distributed training using DDP
+        sampler = DistributedSampler(dataset, shuffle=train, drop_last=True) if distributed else None
+        batch_size = int(params.local_batch_size if train else params.local_valid_batch_size)
+
+        dataloader = DataLoader(dataset,
+                                batch_size=batch_size,
+                                num_workers=params.num_data_workers,
+                                shuffle=(sampler is None and train), # Don't shuffle validation/test data
+                                sampler=sampler,
+                                collate_fn=shower_collate_fn,
+                                drop_last=True,
+                                pin_memory=torch.cuda.is_available(), 
+                                timeout=120) # timeout to prevent hanging
+    
+    else:
+        # Used cached validation dataset for validation
+        freeze_eval_poses = True
+        raw_validation = ShowerDataset(params, data_location, mode=mode, freeze_eval_poses=freeze_eval_poses)
+
+        # Check if validation cache exists, if not create it
+        cache_file_path = os.path.join(params.val_cache_path, raw_validation.val_cache_file)
+        raw_validation._check_val_cache()
+
+        # Get cached validation dataset
+        cached_val_dataset = CachedValDataset(cache_file_path)
+
+        # Iterate per event, use batch size of 1 and no collate_fn
+        sampler = None # order is deterministic
+        dataloader = DataLoader(cached_val_dataset,
+                          batch_size=1, 
+                          num_workers=2, # can single thread for h5 access
+                          shuffle=False, 
+                          sampler=sampler,
+                          collate_fn=None,
+                          drop_last=False,
+                          pin_memory=torch.cuda.is_available(),
+                          timeout=120) # timeout to prevent hanging
+        
     return dataloader, sampler
-
 
 segments_event_data_dtype = np.dtype([
     ('dE', np.float32),  # Energy deposit
@@ -82,7 +113,7 @@ def shower_collate_fn(batch):
 
 class ShowerDataset(Dataset):
          
-    def __init__(self, params, data_location, mode='train', freeze_eval_poses=True, eval_poses_per_event=1):
+    def __init__(self, params, data_location, mode='train', freeze_eval_poses=True):
 
         """
         Args:
@@ -90,12 +121,13 @@ class ShowerDataset(Dataset):
             data_location:         Path to dataset directory
             mode:                  'train' | 'valid' | 'test' 
             freeze_eval_poses:     If True, use fixed poses for validation/testing (deterministic evaluation)
-            eval_poses_per_event:  Evaluation poses per event (average later); only used if freeze_eval_poses is True
         """
 
         self.mode = mode
         self.freeze_eval_poses = freeze_eval_poses
-        self.eval_poses_per_event = eval_poses_per_event
+        self.eval_poses_per_event = params.eval_poses_per_event
+        self.val_cache_path = params.val_cache_path if hasattr(params, 'val_cache_path') else None
+        self.val_cache_file = f"val_cache_K{params.eval_poses_per_event}_seed{int(params.random_seed)}.h5"
 
         self._file_dir = data_location
         self._set_dataset_file_list()  # Get list of files in dataset directory
@@ -194,6 +226,37 @@ class ShowerDataset(Dataset):
 
         return combined_data, true_KE_initial_tensor, ve_frac_tensor, mg_frac_tensor, oob_frac_tensor
     
+    # Method to check if validation poses are cached
+    def _check_val_cache(self):
+
+        if self.mode is not 'valid' or not self.freeze_eval_poses:
+            return None  # No caching needed for training or non-frozen eval poses
+        
+        # Check validation caching for multi-gpu
+        rank = 0
+        world_size = 1
+        ddp = False
+        try: 
+            ddp = dist.is_initialized()
+            if ddp:
+                rank = dist.get_rank()
+                world_size = dist.get_world_size()
+        except Exception:
+            pass
+
+        if rank == 0:
+            val_cache_file_path = os.path.join(self.val_cache_path, self.val_cache_file)
+            if not os.path.isfile(val_cache_file_path):
+                print(f"[rank 0] Precomputing validation cache in {val_cache_file_path}...")
+                self._precompute_eval_poses_cache()
+            else:
+                print(f"[rank 0] Validation cache file {val_cache_file_path} already exists, skipping precomputation.")
+
+        if ddp:
+            dist.barrier()  # wait for rank 0 to finish precomputing cache
+
+        return val_cache_file_path
+
     # Method to get file_idx, event_idx pair from global idx
     def _decode_idx(self, idx):
         """Decode a global index into a file index and an event index."""
@@ -209,7 +272,7 @@ class ShowerDataset(Dataset):
         return np.random.default_rng(np.uint64(mixed_seed & 0xFFFFFFFFFFFFFFFF))  # Ensure seed fits in uint64
 
     # Method to convert random start position and start direction to set of filtered visible depositions
-    def _get_filtered_segments(self, rng, segments, true_KE_initial, min_visible_energy=5):
+    def _get_filtered_segments(self, rng, segments, true_KE_initial):
         ''' Method to convert random start position and start direction to set of filtered visible depositions
         Inputs:
             - rng: random number generator (different for train/val/test for reproducibility)
@@ -251,7 +314,7 @@ class ShowerDataset(Dataset):
             visible_energy = np.sum(segment_energy[in_any_volume])  # Sum the energy depositions of visible segments
         
             #if visible_energy_fraction >= min_visible_energy:
-            if visible_energy >= min_visible_energy:
+            if visible_energy >= self._min_visible_energy:
                 break
 
         # Get visible energy fraction, module gap energy fraction, and uncontained energy fraction
@@ -285,7 +348,7 @@ class ShowerDataset(Dataset):
         #print("Sum of Energy Fractions:", visible_energy_fraction+module_gap_energy_fraction+out_of_det_bounds_energy_fraction)
         #
         #if visible_energy_fraction < min_visible_energy:
-        if visible_energy < min_visible_energy:
+        if visible_energy < self._min_visible_energy:
             raise RuntimeError(f"Not enough visible energy ({visible_energy}) for event with initial KE {true_KE_initial}. Resampling failed.")
             
         visible_xyz = transformed_segments_xyz[in_any_volume]  # Get the positions of visible segments
@@ -297,6 +360,94 @@ class ShowerDataset(Dataset):
         visible_segments['z'] = visible_xyz[:, 2]  # Fill the z coordinate
 
         return visible_segments, visible_energy_fraction, module_gap_energy_fraction, out_of_det_bounds_energy_fraction
+
+    # Method to get multiple poses per event for eval
+    def  _get_multi_pose(self, event_id, segments, true_KE_initial):
+        """Get multiple poses per event for evaluation"""
+        poses = []
+        for pose_idx in range(self.eval_poses_per_event):
+            rng = self._get_deterministic_rng_per_event(event_id, pose_idx)
+            vis_segs, ve_frac, mg_frac, oob_frac = self._get_filtered_segments(rng, segments, true_KE_initial)
+            coords, features = self._voxelize_sparse(vis_segs)
+            coords = torch.from_numpy(coords).contiguous()  # Keep as int32 for voxel indices
+            features = torch.from_numpy(features).contiguous()  # Already float32
+            combined_data = torch.cat([coords.float(), features], dim=1)  # Convert coords to float only for concatenation
+            poses.append((combined_data, ve_frac, mg_frac, oob_frac))
+        return poses
+    
+    # Method to precompute eval poses and save to cache
+    def _precompute_eval_poses_cache(self):
+        """Precompute eval poses and save to cache directory file"""
+        os.makedirs(self.val_cache_path, exist_ok=True)
+
+        cache_file_path = os.path.join(self.val_cache_path, self.val_cache_file)
+        # Open an output HDF5 file to store the cached poses
+        with h5py.File(cache_file_path, 'w') as h5_cache_file:
+
+            event_ids = []
+            labels = []
+            ve_all = [] # shape [N, eval_poses_per_event]
+            mg_all = []
+            oob_all = []
+
+        # variable length datatypes for coords (int32) and features (float32)
+        vlen_i32 = h5py.vlen_dtype(np.dtype('int32'))
+        vlen_f32 = h5py.vlen_dtype(np.dtype('float32'))
+
+        # Create datasets to store concatenated poses per event + offsets to slice per pose
+        coords_list = h5_cache_file.create_dataset('coords_list', (self.__len__(),), dtype=vlen_i32)
+        features_list = h5_cache_file.create_dataset('features_list', (self.__len__(),), dtype=vlen_f32)
+        pose_offsets = h5_cache_file.create_dataset('pose_offsets', (self.__len__(), self.eval_poses_per_event + 1), dtype='int64')
+
+        # Look through validation sample once
+        for idx in range(self.__len__()):
+            file_idx, event_local_idx = self._decode_idx(idx)
+            with h5py.File(self._file_list[file_idx], 'r') as val_file:
+
+                event = val_file['events'][event_local_idx]
+                event_id = int(event['event_id'])
+                segments = val_file['segments'][val_file['segments_ref'][event_id]]
+                true_KE_initial = float(np.sqrt(np.sum(np.square(event['pxyz_start']))))
+
+            # Get multiple poses for the event
+            pose_vec = []
+            ve_vec, mg_vec, oob_vec = [], [], []
+            offsets = [0]
+            for pose_idx in range(self.eval_poses_per_event):
+                rng = self._get_deterministic_rng_per_event(event_id, pose_idx)
+                vis_segs, ve_frac, mg_frac, oob_frac = self._get_filtered_segments(rng, segments, true_KE_initial)
+                coords, features = self._voxelize_sparse(vis_segs)
+                pose_vec.append((coords, features))
+                ve_vec.append(ve_frac); mg_vec.append(mg_frac); oob_vec.append(oob_frac)
+                offsets.append(offsets[-1] + coords.shape[0])
+
+            # Store concatenated coordinates and features
+            coords_concat = np.concatenate([c for (c, _) in pose_vec], axis=0)
+            features_concat = np.concatenate([f for (_, f) in pose_vec], axis=0)
+
+            # Store in HDF5 datasets
+            event_ids.append(event_id)
+            labels.append(true_KE_initial / 1000.0)  # Convert to GeV
+            ve_all.append(ve_vec)
+            mg_all.append(mg_vec)
+            oob_all.append(oob_vec)
+
+            coords_list[idx] = coords_concat.reshape(-1).astype(np.int32)
+            features_list[idx] = features_concat.reshape(-1).astype(np.float32)
+            pose_offsets[idx, :] = np.array(offsets, dtype=np.int64)
+
+        # Write fixed-size arrays
+        h5_cache_file.create_dataset('event_ids',     data=np.array(event_ids, dtype='int64'), compression="gzip")
+        h5_cache_file.create_dataset('labels',        data=np.array(labels,    dtype='float32'), compression="gzip")
+        h5_cache_file.create_dataset('ve_fractions',  data=np.array(ve_all,    dtype='float32'), compression="gzip")
+        h5_cache_file.create_dataset('mg_fractions',  data=np.array(mg_all,    dtype='float32'), compression="gzip")
+        h5_cache_file.create_dataset('oob_fractions', data=np.array(oob_all,   dtype='float32'), compression="gzip")
+
+        # Add metadata
+        h5_cache_file.attrs['eval_poses_per_event'] = self.eval_poses_per_event
+        h5_cache_file.attrs['random_seed'] = self._RANDOM_SEED
+        h5_cache_file.attrs['version'] = 'v1.0'
+
 
     # Method to get uniformly randomly sampled directions
     def _sample_random_rotation_matrix(self, rng):
@@ -420,3 +571,49 @@ class ShowerDataset(Dataset):
         features = np.array(segments['dE'], dtype=np.float32).reshape(-1, 1)
 
         return self._unique_voxel_indices(coords, features)
+    
+
+
+
+# Class for cached validation dataset
+class CachedValDataset(Dataset):
+
+    def __init__(self, cache_file_path):
+
+        self.cache_file_path = cache_file_path
+        self.h5_file = h5py.File(self.cache_file_path, 'r')
+        self.event_ids = self.h5_file['event_ids'][:]            # [N]
+        self.labels = self.h5_file['labels'][:]                  # [N]
+        self.ve_fractions = self.h5_file['ve_fractions'][:]      # [N, eval_poses_per_event]
+        self.mg_fractions = self.h5_file['mg_fractions'][:]      # [N, eval_poses_per_event]
+        self.oob_fractions = self.h5_file['oob_fractions'][:]    # [N, eval_poses_per_event]
+        self.coords_list_vlen = self.h5_file['coords_list']      # variable length dataset
+        self.features_list_vlen = self.h5_file['features_list']  # variable length dataset
+        self.pose_offsets = self.h5_file['pose_offsets']         # [N, eval_poses_per_event + 1]
+        self.eval_poses_per_event = self.h5_file.attrs['eval_poses_per_event']
+
+    def __len__(self):
+        return len(self.event_ids)
+    
+    def __getitem__(self, idx):
+        # Get concatenated coords and features for the event
+        coords_concat = self.coords_list_vlen[idx][:]
+        features_concat = self.features_list_vlen[idx][:]
+        offsets = self.pose_offsets[idx]
+        eval_poses_per_event = self.eval_poses_per_event
+
+        # Give list of poses for the event (val loop iterates and averages)
+        poses = []
+        for k in range(eval_poses_per_event):
+            start, end = int(offsets[k]), int(offsets[k+1])
+            coords = coords_concat[start*4 : end*4].reshape(-1, 4).astype(np.float32)
+            features = features_concat[start : end].reshape(-1, 1).astype(np.float32)
+            combined_data = np.concatenate([coords, features], axis=1)
+            poses.append(torch.from_numpy(combined_data).contiguous())
+
+        label = torch.tensor(self.labels[idx], dtype=torch.float32)
+        ve_fractions = torch.from_numpy(self.ve_fractions[idx]).to(torch.float32)
+        mg_fractions = torch.from_numpy(self.mg_fractions[idx]).to(torch.float32)
+        oob_fractions = torch.from_numpy(self.oob_fractions[idx]).to(torch.float32)
+
+        return poses, label, ve_fractions, mg_fractions, oob_fractions
