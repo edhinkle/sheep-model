@@ -14,6 +14,7 @@ import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
 import csv
+import datetime
 
 # models
 import models.sheep_cnn
@@ -30,21 +31,31 @@ class Trainer():
         if 'WORLD_SIZE' in os.environ:
             self.world_size = int(os.environ['WORLD_SIZE'])
 
-        self.local_rank = 0
-        self.world_rank = 0
-        if self.world_size > 1: # multigpu, use DDP with standard NCCL backend for communication routines
-            dist.init_process_group(backend='nccl',
-                                    init_method='env://')
-            self.world_rank = dist.get_rank()
+        # Get local rank first (even if not DDP)
+        if 'LOCAL_RANK' in os.environ:
             self.local_rank = int(os.environ["LOCAL_RANK"])
+        else: 
+            self.local_rank = 0
 
+        # Select GPU for rank (if mulitgpu)
         if torch.cuda.is_available():
             torch.cuda.set_device(self.local_rank)
-            torch.backends.cudnn.benchmark = True
+
+        # Initialize DDP using NCCL backend
+        if self.world_size > 1: # multigpu, use DDP with standard NCCL backend for communication routines
+            dist.init_process_group(backend='nccl',
+                                    init_method='env://',
+                                    timeout=datetime.timedelta(minutes=60))
+            self.world_rank = dist.get_rank()
+        else: 
+            self.world_rank =0        
+
+        # Set cuDNN settings after selecting device
+        torch.backends.cudnn.benchmark = True
         
         self.log_to_screen = (self.world_rank==0)
         if torch.cuda.is_available():
-            self.device = torch.cuda.current_device()
+            self.device = torch.device(f"cuda:{self.local_rank}")
         else:
             self.device = torch.device('cpu')
         self.params = params
@@ -78,9 +89,9 @@ class Trainer():
         self.params['local_valid_batch_size'] = int(self.params.valid_batch_size//self.world_size)
 
         # get the dataloaders
-        self.train_data_loader, self.train_sampler = get_data_loader(self.params, self.params.train_path, dist.is_initialized(), train=True, freeze_eval_poses=True)
+        self.train_data_loader, self.train_sampler = get_data_loader(self.params, self.params.train_path, dist.is_initialized(), train=True)
         #self.test_data_loader, self.test_sampler = get_data_loader(self.params, self.params.test_path, dist.is_initialized(), train=False)
-        self.val_data_loader, _ = get_data_loader(self.params, self.params.val_path, dist.is_initialized(), train=False, freeze_eval_poses=True)
+        self.val_data_loader, _ = get_data_loader(self.params, self.params.val_path, dist.is_initialized(), train=False)
 
         # get the model
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
@@ -191,6 +202,9 @@ class Trainer():
             self.iters += 1
             data_start = time.time()
             inputs, targets = inputs.to(self.device), targets.to(self.device)
+            print("Inputs Shape:", inputs.shape)
+            print("Targets Shape:", targets.shape)
+            print("Target:", targets)
             tr_start = time.time()
 
             #self.model.zero_grad()
@@ -204,11 +218,12 @@ class Trainer():
             self.optimizer.step()
  
             # add all the minibatch losses
-            self.logs['train_loss'] += loss.detach()
+            print("Training loss:", loss.detach())
+            self.logs['train_loss'] += loss.detach()  / len(self.train_data_loader)
 
             tr_time += time.time() - tr_start
 
-        self.logs['train_loss'] /= len(self.train_data_loader)
+        #self.logs['train_loss'] /= len(self.train_data_loader)
 
         logs_to_reduce = ['train_loss']
         if dist.is_initialized(): # reduce the logs across multiple GPUs
@@ -247,38 +262,65 @@ class Trainer():
         return val_time
     
     def val_one_epoch_from_multi_pose_cache(self):
-        self.model.eval()
+
         val_start = time.time()
-        total_loss = 0.0
-        total_events = 0
+        if self.world_rank == 0: 
+            self.model.eval()
+            total_loss = 0.0
+            total_events = 0
 
-        logs_buff = torch.zeros((1), dtype=torch.float32, device=self.device)
-        self.logs['val_loss'] = logs_buff[0].view(-1)
-        if self.log_to_screen:
-            print("Starting validation from multi-pose cache with {} batches".format(len(self.cached_val_data_loader)))
+            logs_buff = torch.zeros((1), dtype=torch.float32, device=self.device)
+            self.logs['val_loss'] = logs_buff[0].view(-1)
+            if self.log_to_screen:
+                print("Starting validation from multi-pose cache with {} batches".format(len(self.val_data_loader)))
 
-        with torch.no_grad():
-            for (poses, label, VE_frac, MG_frac, OOB_frac) in self.cached_val_data_loader:
-                # Set batch size to 1:
-                poses = poses[0] # k tensors [N, K]
-                label = label[0].to(self.device) # tensor [N]
+            with torch.no_grad():
+                for (poses, label, VE_frac, MG_frac, OOB_frac) in self.val_data_loader:
+                    # Set batch size to 1:
+                    poses = poses[0] # k tensors [N, K]
+                    label = label[0].to(self.device) # tensor [N]
+                    if self.log_to_screen:
+                        print("Processing event with label shape {}".format(label.shape))
+                        print("Label:", label)
+                        print("Label squeezed:", label.squeeze())
 
-                pose_losses = []
-                for combined_data in poses:
-                    inputs = combined_data.to(self.device)
-                    outputs = self.model(inputs)
-                    loss = self.loss_func(outputs, label)
-                    pose_losses.append(loss.detach().item())
+                    pose_predictions = []
+                    for combined_data in poses:
+                        inputs = combined_data.to(self.device)
+                        if self.log_to_screen:
+                            print("  Input shape for pose:", inputs.shape)
+                        outputs = self.model.module(inputs) # remove DDP wrapper for validation
+                        #print("Shape of outputs:", outputs.shape)
+                        #loss = self.loss_func(outputs, label)
+                        #print("  Pose loss: {}".format(loss.detach().item()))
+                        #print("  Pose loss no item{}".format(loss.detach()))
+                        pose_predictions.append(outputs)
 
-                total_loss += float(np.mean(pose_losses))
-                total_events += 1
+                    average_pose_prediction = torch.mean(torch.stack(pose_predictions, dim=0))
+                    print("Average pose prediction shape:", average_pose_prediction.shape)
+                    loss = self.loss_func(average_pose_prediction, label.squeeze())
 
-        self.logs['val_loss'] = total_loss / max(total_events, 1)
+                    total_loss += float(loss.detach().item())
+                    total_events += 1
+
+                    # Check is nan/inf:
+                    if torch.isnan(average_pose_prediction) or torch.isinf(average_pose_prediction):
+                        print(f"Rank {self.world_rank}: Invalid prediction: {average_pose_prediction}")
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        print(f"Rank {self.world_rank}: Invalid loss: {loss}")
+
+                    # Check average pose predictions
+                    print(f"Pred: {average_pose_prediction.item():.6f}, Label: {label.item():.6f}")
+
+            self.logs['val_loss'] = total_loss / max(total_events, 1)
+        else:
+            self.logs['val_loss'] = 0.0
 
         if dist.is_initialized():
-            for key in ['val_loss']:
-                dist.all_reduce(self.logs[key].detach())
-                self.logs[key] = float(self.logs[key]/dist.get_world_size())
+            val_loss_fl = float(self.logs['val_loss'])
+            val_loss_t = torch.tensor(val_loss_fl, dtype=torch.float32, device=self.device)
+            #dist.broadcast(val_loss_t, src=0)
+            self.logs['val_loss'] = float((val_loss_t.item()))
 
         val_time = time.time() - val_start
 
