@@ -257,7 +257,10 @@ class ShowerDataset(Dataset):
         # Get visible energy fraction, module gap energy fraction, and uncontained energy fraction
         # visible_energy_fraction is calculated above
 
-        # Module gap energy 
+        # Module gap energy
+        print("True KE Initial: ", true_KE_initial) 
+        print("Start position: ", start_pos)
+        print("Rotation matrix: ", rotation_matrix)
         in_abs_det_bounds = np.all((transformed_segments_xyz[:, :] >= self._min_xyz) &
                                    (transformed_segments_xyz[:, :] <= self._max_xyz), axis=1)
         in_mod_gaps = in_abs_det_bounds & ~in_any_volume
@@ -360,8 +363,16 @@ class ShowerDataset(Dataset):
         """Get list of files in dataset directory"""
         self._file_list = []
 
+        stop_at = -1
+        if self.mode == 'train':
+            stop_at = 1000
+        else:
+            stop_at = 125
+
         for file in glob.glob(self._file_dir + '*.hdf5'):
             self._file_list.append(file)
+            if len(self._file_list) == stop_at:
+                break
 
         if len(self._file_list) == 0:
             raise ValueError("No files found in dataset directory: {}".format(self._file_dir)) 

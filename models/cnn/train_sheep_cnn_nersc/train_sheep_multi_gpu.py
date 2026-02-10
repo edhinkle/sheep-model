@@ -231,6 +231,7 @@ class Trainer():
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
                 outputs = self.model(inputs)
                 loss = self.loss_func(outputs, targets)
+
                 #if self.log_to_screen:
                 #    print("Val loss batch {}: {}".format(i, loss.item()))
                 self.logs['val_loss'] += loss.detach()
