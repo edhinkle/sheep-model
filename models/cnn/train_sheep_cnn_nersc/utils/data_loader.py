@@ -1,11 +1,12 @@
 # Modeled after: https://github.com/NERSC/nersc-dl-multigpu/blob/main/utils/data_loader.py
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, get_worker_info
 from torch.utils.data.distributed import DistributedSampler
 import numpy as np
 import sys
 import subprocess
+import os
 
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -124,9 +125,12 @@ class ShowerDataset(Dataset):
 
         # Set random seeds for reproducibility
         # Use local generators vs. global to avoid interference between workers and encourage reproducibility
-        self._train_rng = np.random.default_rng(self._RANDOM_SEED)
+        #self._train_rng = np.random.default_rng(self._RANDOM_SEED)
         #np.random.seed(self._RANDOM_SEED)
         #torch.manual_seed(self._RANDOM_SEED)
+        self._epoch = 0
+        #self._train_rng = np.random.default_rng(self._RANDOM_SEED)
+        self._train_rng = None
 
         # Set torch device
         #self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -158,23 +162,9 @@ class ShowerDataset(Dataset):
             #    print("Initial KE:", true_KE_initial)
             #    print("Total dE:", np.sum(segments['dE']))  # Debugging line to check total dE for the event
 
-            if self.mode == 'train':
-                rng = self._train_rng
-                # Get filtered segments for training
-                vis_segs, ve_frac, mg_frac, oob_frac = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
-            else:
-                # For validation/testing, use deterministic poses
-                if self.freeze_eval_poses:
-                    key = (event_id, 0) # pose_idx = 0 until expanding to >1 poses per event
-                    if key not in self._eval_pose_cache:
-                        rng = self._get_deterministic_rng_per_event(event_id, pose_idx=0)
-                        self._eval_pose_cache[key] = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
-                    # Retrieve from cache
-                    vis_segs, ve_frac, mg_frac, oob_frac = self._eval_pose_cache[key]
-                else:
-                    # Non-deterministic eval poses (different each epoch -- NOT ideal)
-                    rng = self._train_rng
-                    vis_segs, ve_frac, mg_frac, oob_frac = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
+            # Same for train/validation/test now
+            rng = self._get_deterministic_rng_per_event(event_id)
+            vis_segs, ve_frac, mg_frac, oob_frac = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
         #filtered_segments = transformed_segments[segments_det_mask]
         
         # Voxelize the filtered segments SPARSELY
@@ -203,9 +193,9 @@ class ShowerDataset(Dataset):
         return file_idx, event_idx
     
     # Set deterministic rng per event for validation/testing
-    def _get_deterministic_rng_per_event(self, event_id: int, pose_idx: int=0):
-        """Get a deterministic random number generator for a given event and pose index for cross-epoch stability"""
-        mixed_seed = (self._RANDOM_SEED * 1_000_0003) ^ (int(event_id) * 97) ^ (pose_idx * 1_000_000 + 1337)
+    def _get_deterministic_rng_per_event(self, event_id: int):
+        """Get a deterministic random number generator for a given event and epoch for determinstic training and validation poses."""
+        mixed_seed = (self._RANDOM_SEED * 1_000_0003) ^ (int(event_id) * 97) ^ (int(self._epoch) * 1_000_000 + 1337)
         return np.random.default_rng(np.uint64(mixed_seed & 0xFFFFFFFFFFFFFFFF))  # Ensure seed fits in uint64
 
     # Method to convert random start position and start direction to set of filtered visible depositions
@@ -376,6 +366,11 @@ class ShowerDataset(Dataset):
 
         if len(self._file_list) == 0:
             raise ValueError("No files found in dataset directory: {}".format(self._file_dir)) 
+        
+    # Set epoch method to update epoch count for deterministic RNGs
+    def _set_epoch(self, epoch: int):
+         """Called from training loop each epoch so per-sample RNGs can vary deterministically per epoch."""
+         self._epoch = int(epoch)
         
     # Method to get number of events per file
     def _set_events_per_file(self):

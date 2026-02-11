@@ -134,6 +134,8 @@ class Trainer():
                 # shuffles data before every epoch
                 self.train_sampler.set_epoch(epoch)
                 self.valid_sampler.set_epoch(epoch) # <-- added for validation shuffling
+                self.train_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNGs
+                self.val_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNG
             start = time.time()
 
             # training
