@@ -14,10 +14,11 @@ default: &default
   # optimization
   lr: 0.001
   optimizer: 'Adam'
-  max_epochs: 2 
-  max_cosine_lr_epochs: 2
+  max_epochs: 10
+  max_cosine_lr_epochs: 10
   batch_size: 200
   valid_batch_size: 200
+  bn_momentum: 0.01
   # Loss function
   loss_fn: 'MSELoss'
   # misc

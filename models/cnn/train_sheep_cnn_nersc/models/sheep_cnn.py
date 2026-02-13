@@ -13,6 +13,16 @@ def sheep_cnn(params, **kwargs):
     model = SparseResidualEncoder(reps=params.reps, depth=params.depth, filters=params.filters, input_kernel=params.input_kernel, \
                                   coord_conv=params.coord_conv, pool_mode=params.pool_mode, spatial_size=params.spatial_size, \
                                   num_input=params.num_input, feature_size=params.feature_size, allow_bias=params.allow_bias,**kwargs)
+    
+    for m in model.modules():
+        if isinstance(m, ME.MinkowskiBatchNorm):
+            m.momentum = params.bn_momentum
+
+    # Debug test
+    #for name, m in model.named_modules():
+    #    if isinstance(m, ME.MinkowskiBatchNorm):
+    #        print(f"BatchNorm Layer: {name}, Momentum: {m.momentum}")
+
     return model
 
 
