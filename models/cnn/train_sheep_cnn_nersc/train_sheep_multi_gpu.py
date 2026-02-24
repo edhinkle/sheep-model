@@ -194,6 +194,7 @@ class Trainer():
         for i, (inputs, targets, VE_frac, MG_frac, OOB_frac) in enumerate(self.train_data_loader):
             self.iters += 1
             data_start = time.time()
+            #print("Inputs: ", inputs)
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             tr_start = time.time()
 

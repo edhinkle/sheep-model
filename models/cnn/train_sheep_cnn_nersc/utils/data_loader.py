@@ -78,6 +78,8 @@ def shower_collate_fn(batch):
     batched_mg_frac = torch.stack(mg_frac_list, dim=0).reshape(-1, 1)
     batched_oob_frac = torch.stack(oob_frac_list, dim=0).reshape(-1, 1)
 
+    #print("Batched data:", batched_data)
+
     return batched_data, batched_labels, batched_ve_frac, batched_mg_frac, batched_oob_frac
 
 
@@ -247,10 +249,11 @@ class ShowerDataset(Dataset):
         # Get visible energy fraction, module gap energy fraction, and uncontained energy fraction
         # visible_energy_fraction is calculated above
 
-        # Module gap energy
-        print("True KE Initial: ", true_KE_initial) 
-        print("Start position: ", start_pos)
-        print("Rotation matrix: ", rotation_matrix)
+        # Debug determinism in sampling
+        #print("True KE Initial: ", true_KE_initial) 
+        #print("Start position: ", start_pos)
+        #print("Rotation matrix: ", rotation_matrix)
+        # Module gap energy 
         in_abs_det_bounds = np.all((transformed_segments_xyz[:, :] >= self._min_xyz) &
                                    (transformed_segments_xyz[:, :] <= self._max_xyz), axis=1)
         in_mod_gaps = in_abs_det_bounds & ~in_any_volume
