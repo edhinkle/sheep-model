@@ -15,13 +15,15 @@ def sheep_cnn(params, **kwargs):
                                   coord_conv=params.coord_conv, pool_mode=params.pool_mode, spatial_size=params.spatial_size, \
                                   num_input=params.num_input, feature_size=params.feature_size, allow_bias=params.allow_bias,**kwargs)
     
-    for m in model.modules():
-        if isinstance(m, ME.MinkowskiBatchNorm):
-            m.momentum = params.bn_momentum
+    # Replace batch norm with instance norm
+    replace_bn_with_in(model)
+    #for m in model.modules():
+    #    if isinstance(m, ME.MinkowskiBatchNorm):
+    #        m.momentum = params.bn_momentum
     
-    for name, module in model.named_modules():
-        if isinstance(module, ME.MinkowskiBatchNorm):
-            module.register_forward_hook(bn_hook(name))
+    #for name, module in model.named_modules():
+    #    if isinstance(module, ME.MinkowskiBatchNorm):
+    #        module.register_forward_hook(bn_hook(name))
 
     # Debug test
     #for name, m in model.named_modules():
@@ -32,6 +34,15 @@ def sheep_cnn(params, **kwargs):
 
 # Hook for getting batch norm batch statistics
 batch_norm_stats = {}
+
+def replace_bn_with_in(model):
+
+    for name, child in model.named_children(): 
+        if isinstance(child, ME.MinkowskiBatchNorm):
+            setattr(model, name, ME.MinkowskiInstanceNorm(child.bn.num_features))
+        else:
+            replace_bn_with_in(child)
+
 
 def bn_hook(name):
     def hook(module, input, output):

@@ -84,8 +84,8 @@ class Trainer():
         # get the model
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
         # convert batch norm layers to sync batch norm for distributed training
-        if dist.is_initialized():
-            self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+        #if dist.is_initialized():
+        #    self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
 
         # distributed wrapper for data parallel
         if dist.is_initialized():
