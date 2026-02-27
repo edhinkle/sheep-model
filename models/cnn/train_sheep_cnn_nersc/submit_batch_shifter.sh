@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --time=0:10:00
+#SBATCH --time=1:35:00
 #SBATCH --constraint=gpu
 #SBATCH --account=dune
 #SBATCH --qos=regular
@@ -14,7 +14,7 @@
 
 config_file=./configs/default_sheep.yaml
 config="default"
-run_num="ddp-shifter-validation-cache-SMALL-TEST-lr0p001-10epochs-avg_pred6"
+run_num="ddp-shifter-batch-size-fix-val-loss-1250_SAMPLE_EVAL_MODE_ON_MESYNCBN_MOMENTUM_0.01_LOG_BATCH_STATS_BS_3125_num_workers_16_LR_0.0001"
 
 # this is the path to your local env for libs on top of the container
 # here we have created a local dir in our ~/.local/perlmutter path

@@ -1,5 +1,5 @@
 default: &default
-  num_data_workers: 5
+  num_data_workers: 16
   # model
   reps: 2
   depth: 9
@@ -12,12 +12,13 @@ default: &default
   feature_size: 1
   allow_bias: !!bool False
   # optimization
-  lr: 0.001
+  lr: 0.0001
   optimizer: 'Adam'
-  max_epochs: 10
-  max_cosine_lr_epochs: 10
-  batch_size: 20
-  valid_batch_size: 1
+  max_epochs: 100
+  max_cosine_lr_epochs: 100
+  batch_size: 3125
+  valid_batch_size: 625
+  bn_momentum: 0.01
   # Loss function
   loss_fn: 'MSELoss'
   # misc
@@ -41,7 +42,7 @@ default: &default
                              [ -3.069,  62.076, -2.4620001]]]
   random_seed: 0
   voxel_size: [0.4434, 0.4434, 0.4434]
-  min_visible_energy: 2
+  min_visible_energy: 2.0
   fid_vol_cut: 2.0
   eval_poses_per_event: 5
 

@@ -3,6 +3,7 @@
 import os, sys, time
 from collections import OrderedDict
 import argparse
+from xml.parsers.expat import model
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
@@ -14,6 +15,7 @@ import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
 import csv
+import MinkowskiEngine as ME
 import datetime
 
 # models
@@ -71,6 +73,7 @@ class Trainer():
         self.params['experiment_dir'] = os.path.abspath(exp_dir)
         self.params['checkpoint_path'] = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
         self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_train_log.csv'.format(self.run_num, self.config))
+        self.params['batch_stats_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_batch_stats_log.csv'.format(self.run_num, self.config))
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
     def launch(self):
@@ -82,6 +85,11 @@ class Trainer():
             with open(self.params['log_path'], 'w') as f:
                 writer = csv.writer(f)
                 writer.writerow(['epoch', 'train_iter', 'train_loss', 'val_loss', 'train_time', 'val_time'])
+
+            # Set up batch norm stats logging to file
+            with open(self.params['batch_stats_log_path'], 'w') as f:
+                writer = csv.writer(f)
+                writer.writerow(['epoch', 'layer_name', 'global_batch_mean', 'global_batch_var', 'running_mean', 'running_var', 'momentum'])
 
         self.params['global_batch_size'] = self.params.batch_size
         self.params['local_batch_size'] = int(self.params.batch_size//self.world_size)
@@ -95,6 +103,15 @@ class Trainer():
 
         # get the model
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
+        # convert batch norm layers to sync batch norm for distributed training
+        if dist.is_initialized():
+            self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
+        for name, module in self.model.named_modules():
+            if isinstance(module, ME.MinkowskiSyncBatchNorm):
+                module.register_forward_hook(models.sheep_cnn.bn_hook(name))
+
+        total_params = sum(p.numel() for p in self.model.parameters())
+        print(f"Total parameters: {total_params:,}")
 
         # distributed wrapper for data parallel
         if dist.is_initialized():
@@ -145,7 +162,9 @@ class Trainer():
             if dist.is_initialized():
                 # shuffles data before every epoch
                 self.train_sampler.set_epoch(epoch)
-                #self.valid_sampler.set_epoch(epoch) # <-- Got rid of valid sampler
+                self.valid_sampler.set_epoch(epoch) # <-- added for validation shuffling
+                self.train_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNGs
+                self.val_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNG
             start = time.time()
 
             # training
@@ -155,7 +174,7 @@ class Trainer():
                 dist.barrier()  # <-- align all ranks following training on one epoch
 
             # validation
-            val_time = self.val_one_epoch_from_multi_pose_cache()
+            val_time = self.val_one_epoch()
 
             if dist.is_initialized():
                 dist.barrier()  # <-- align all ranks following validation on one epoch
@@ -181,7 +200,15 @@ class Trainer():
                     with open(self.params['log_path'], 'a', newline='') as f:
                         writer = csv.writer(f)
                         writer.writerow([self.epoch, self.iters, self.logs['train_loss'], self.logs['val_loss'], tr_time, val_time])
-
+                    # Save batch norm stats to separate log file
+                    with open(self.params['batch_stats_log_path'], 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        # Assuming batch_norm_stats is a dict with layers as keys and their stats as values
+                        for key in models.sheep_cnn.batch_norm_stats:
+                            stats = models.sheep_cnn.batch_norm_stats[key]
+                            writer.writerow([self.epoch, key, stats['global_batch_mean'], stats['global_batch_var'], stats['running_mean'], stats['running_var'], stats['momentum']])  # Log the stats for the current epoch
+                        # Reset batch norm stats after logging
+                    models.sheep_cnn.batch_norm_stats = {}
             # some print statements
             if self.log_to_screen:
                 print('Time taken for epoch {} is {} sec; with {}/{} in tr/val'.format(self.epoch+1, time.time()-start, tr_time, val_time))
@@ -201,10 +228,9 @@ class Trainer():
         for i, (inputs, targets, VE_frac, MG_frac, OOB_frac) in enumerate(self.train_data_loader):
             self.iters += 1
             data_start = time.time()
+            #print("Inputs: ", inputs)
             inputs, targets = inputs.to(self.device), targets.to(self.device)
-            print("Inputs Shape:", inputs.shape)
-            print("Targets Shape:", targets.shape)
-            print("Target:", targets)
+      
             tr_start = time.time()
 
             #self.model.zero_grad()
@@ -216,6 +242,13 @@ class Trainer():
             #    print("Train loss batch {}: {}".format(i, loss.item()))
             loss.backward()
             self.optimizer.step()
+
+            if i % 25 == 0:
+                # current usage (bytes)
+                a = torch.cuda.memory_allocated()
+                r = torch.cuda.memory_reserved()  # "cached" by allocator
+                m = torch.cuda.max_memory_allocated()
+                print(f"step {i}: alloc={a/1e6:.1f} MB res={r/1e6:.1f} MB max={m/1e6:.1f} MB")
  
             # add all the minibatch losses
             print("Training loss:", loss.detach())
@@ -223,7 +256,10 @@ class Trainer():
 
             tr_time += time.time() - tr_start
 
-        #self.logs['train_loss'] /= len(self.train_data_loader)
+        self.logs['train_loss'] /= len(self.train_data_loader)
+
+        # reset the peak counter to measure next epoch separately
+        torch.cuda.reset_max_memory_allocated()
 
         logs_to_reduce = ['train_loss']
         if dist.is_initialized(): # reduce the logs across multiple GPUs
@@ -247,6 +283,7 @@ class Trainer():
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
                 outputs = self.model(inputs)
                 loss = self.loss_func(outputs, targets)
+
                 #if self.log_to_screen:
                 #    print("Val loss batch {}: {}".format(i, loss.item()))
                 self.logs['val_loss'] += loss.detach()
@@ -256,71 +293,6 @@ class Trainer():
             for key in ['val_loss']:
                 dist.all_reduce(self.logs[key].detach())
                 self.logs[key] = float(self.logs[key]/dist.get_world_size())
-
-        val_time = time.time() - val_start
-
-        return val_time
-    
-    def val_one_epoch_from_multi_pose_cache(self):
-
-        val_start = time.time()
-        if self.world_rank == 0: 
-            self.model.eval()
-            total_loss = 0.0
-            total_events = 0
-
-            logs_buff = torch.zeros((1), dtype=torch.float32, device=self.device)
-            self.logs['val_loss'] = logs_buff[0].view(-1)
-            if self.log_to_screen:
-                print("Starting validation from multi-pose cache with {} batches".format(len(self.val_data_loader)))
-
-            with torch.no_grad():
-                for (poses, label, VE_frac, MG_frac, OOB_frac) in self.val_data_loader:
-                    # Set batch size to 1:
-                    poses = poses[0] # k tensors [N, K]
-                    label = label[0].to(self.device) # tensor [N]
-                    if self.log_to_screen:
-                        print("Processing event with label shape {}".format(label.shape))
-                        print("Label:", label)
-                        print("Label squeezed:", label.squeeze())
-
-                    pose_predictions = []
-                    for combined_data in poses:
-                        inputs = combined_data.to(self.device)
-                        if self.log_to_screen:
-                            print("  Input shape for pose:", inputs.shape)
-                        outputs = self.model.module(inputs) # remove DDP wrapper for validation
-                        #print("Shape of outputs:", outputs.shape)
-                        #loss = self.loss_func(outputs, label)
-                        #print("  Pose loss: {}".format(loss.detach().item()))
-                        #print("  Pose loss no item{}".format(loss.detach()))
-                        pose_predictions.append(outputs)
-
-                    average_pose_prediction = torch.mean(torch.stack(pose_predictions, dim=0))
-                    print("Average pose prediction shape:", average_pose_prediction.shape)
-                    loss = self.loss_func(average_pose_prediction, label.squeeze())
-
-                    total_loss += float(loss.detach().item())
-                    total_events += 1
-
-                    # Check is nan/inf:
-                    if torch.isnan(average_pose_prediction) or torch.isinf(average_pose_prediction):
-                        print(f"Rank {self.world_rank}: Invalid prediction: {average_pose_prediction}")
-                    if torch.isnan(loss) or torch.isinf(loss):
-                        print(f"Rank {self.world_rank}: Invalid loss: {loss}")
-
-                    # Check average pose predictions
-                    print(f"Pred: {average_pose_prediction.item():.6f}, Label: {label.item():.6f}")
-
-            self.logs['val_loss'] = total_loss / max(total_events, 1)
-        else:
-            self.logs['val_loss'] = 0.0
-
-        if dist.is_initialized():
-            val_loss_fl = float(self.logs['val_loss'])
-            val_loss_t = torch.tensor(val_loss_fl, dtype=torch.float32, device=self.device)
-            #dist.broadcast(val_loss_t, src=0)
-            self.logs['val_loss'] = float((val_loss_t.item()))
 
         val_time = time.time() - val_start
 
