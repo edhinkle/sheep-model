@@ -3,6 +3,7 @@
 import os, sys, time
 from collections import OrderedDict
 import argparse
+from xml.parsers.expat import model
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
@@ -14,6 +15,7 @@ import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
 import csv
+import MinkowskiEngine as ME
 
 # models
 import models.sheep_cnn
@@ -59,6 +61,7 @@ class Trainer():
         self.params['experiment_dir'] = os.path.abspath(exp_dir)
         self.params['checkpoint_path'] = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
         self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_train_log.csv'.format(self.run_num, self.config))
+        self.params['batch_stats_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_batch_stats_log.csv'.format(self.run_num, self.config))
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
     def launch(self):
@@ -70,6 +73,11 @@ class Trainer():
             with open(self.params['log_path'], 'w') as f:
                 writer = csv.writer(f)
                 writer.writerow(['epoch', 'train_iter', 'train_loss', 'val_loss', 'train_time', 'val_time'])
+
+            # Set up batch norm stats logging to file
+            with open(self.params['batch_stats_log_path'], 'w') as f:
+                writer = csv.writer(f)
+                writer.writerow(['epoch', 'layer_name', 'global_batch_mean', 'global_batch_var', 'running_mean', 'running_var', 'momentum'])
 
         self.params['global_batch_size'] = self.params.batch_size
         self.params['local_batch_size'] = int(self.params.batch_size//self.world_size)
@@ -85,7 +93,13 @@ class Trainer():
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
         # convert batch norm layers to sync batch norm for distributed training
         if dist.is_initialized():
-            self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+            self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
+        for name, module in self.model.named_modules():
+            if isinstance(module, ME.MinkowskiSyncBatchNorm):
+                module.register_forward_hook(models.sheep_cnn.bn_hook(name))
+
+        total_params = sum(p.numel() for p in self.model.parameters())
+        print(f"Total parameters: {total_params:,}")
 
         # distributed wrapper for data parallel
         if dist.is_initialized():
@@ -174,7 +188,15 @@ class Trainer():
                     with open(self.params['log_path'], 'a', newline='') as f:
                         writer = csv.writer(f)
                         writer.writerow([self.epoch, self.iters, self.logs['train_loss'], self.logs['val_loss'], tr_time, val_time])
-
+                    # Save batch norm stats to separate log file
+                    with open(self.params['batch_stats_log_path'], 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        # Assuming batch_norm_stats is a dict with layers as keys and their stats as values
+                        for key in models.sheep_cnn.batch_norm_stats:
+                            stats = models.sheep_cnn.batch_norm_stats[key]
+                            writer.writerow([self.epoch, key, stats['global_batch_mean'], stats['global_batch_var'], stats['running_mean'], stats['running_var'], stats['momentum']])  # Log the stats for the current epoch
+                        # Reset batch norm stats after logging
+                    models.sheep_cnn.batch_norm_stats = {}
             # some print statements
             if self.log_to_screen:
                 print('Time taken for epoch {} is {} sec; with {}/{} in tr/val'.format(self.epoch+1, time.time()-start, tr_time, val_time))
@@ -207,6 +229,13 @@ class Trainer():
             #    print("Train loss batch {}: {}".format(i, loss.item()))
             loss.backward()
             self.optimizer.step()
+
+            if i % 25 == 0:
+                # current usage (bytes)
+                a = torch.cuda.memory_allocated()
+                r = torch.cuda.memory_reserved()  # "cached" by allocator
+                m = torch.cuda.max_memory_allocated()
+                print(f"step {i}: alloc={a/1e6:.1f} MB res={r/1e6:.1f} MB max={m/1e6:.1f} MB")
  
             # add all the minibatch losses
             self.logs['train_loss'] += loss.detach()
@@ -214,6 +243,9 @@ class Trainer():
             tr_time += time.time() - tr_start
 
         self.logs['train_loss'] /= len(self.train_data_loader)
+
+        # reset the peak counter to measure next epoch separately
+        torch.cuda.reset_max_memory_allocated()
 
         logs_to_reduce = ['train_loss']
         if dist.is_initialized(): # reduce the logs across multiple GPUs

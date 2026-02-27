@@ -18,9 +18,13 @@ def sheep_cnn(params, **kwargs):
     for m in model.modules():
         if isinstance(m, ME.MinkowskiBatchNorm):
             m.momentum = params.bn_momentum
+        if isinstance(m, ME.MinkowskiSyncBatchNorm):
+            m.momentum = params.bn_momentum
     
     for name, module in model.named_modules():
         if isinstance(module, ME.MinkowskiBatchNorm):
+            module.register_forward_hook(bn_hook(name))
+        if isinstance(module, ME.MinkowskiSyncBatchNorm):
             module.register_forward_hook(bn_hook(name))
 
     # Debug test
@@ -71,13 +75,13 @@ def bn_hook(name):
             'global_batch_var': batch_var.detach().cpu().numpy(),
             'running_mean': module.bn.running_mean.detach().cpu().numpy(),
             'running_var': module.bn.running_var.detach().cpu().numpy(),
-            'per_batch_stats': per_batch_stats
+            'momentum': module.bn.momentum
         }
-        print(f"BatchNorm Layer: {name}, \
-              Global Batch Mean: {batch_mean[:5].detach().cpu().numpy()}, \
-              Running Mean: {module.bn.running_mean[:5].detach().cpu().numpy()}, \
-              Global Batch Var: {batch_var[:5].detach().cpu().numpy()}, \
-              Running Var: {module.bn.running_var[:5].detach().cpu().numpy()}")
+        #print(f"BatchNorm Layer: {name}, \
+        #      Global Batch Mean: {batch_mean[:5].detach().cpu().numpy()}, \
+        #      Running Mean: {module.bn.running_mean[:5].detach().cpu().numpy()}, \
+        #      Global Batch Var: {batch_var[:5].detach().cpu().numpy()}, \
+        #      Running Var: {module.bn.running_var[:5].detach().cpu().numpy()}")
               # Per-batch stats: { {b: {'mean': per_batch_stats[b]['batch_mean'][:5], 'var': per_batch_stats[b]['batch_var'][:5], 'n_points': per_batch_stats[b]['n_points']} for b in per_batch_stats} }")
     return hook
 
