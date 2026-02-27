@@ -16,6 +16,7 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 import csv
 import MinkowskiEngine as ME
+import datetime
 
 # models
 import models.sheep_cnn
@@ -32,25 +33,36 @@ class Trainer():
         if 'WORLD_SIZE' in os.environ:
             self.world_size = int(os.environ['WORLD_SIZE'])
 
-        self.local_rank = 0
-        self.world_rank = 0
-        if self.world_size > 1: # multigpu, use DDP with standard NCCL backend for communication routines
-            dist.init_process_group(backend='nccl',
-                                    init_method='env://')
-            self.world_rank = dist.get_rank()
+        # Get local rank first (even if not DDP)
+        if 'LOCAL_RANK' in os.environ:
             self.local_rank = int(os.environ["LOCAL_RANK"])
+        else: 
+            self.local_rank = 0
 
+        # Select GPU for rank (if mulitgpu)
         if torch.cuda.is_available():
             torch.cuda.set_device(self.local_rank)
-            torch.backends.cudnn.benchmark = True
+
+        # Initialize DDP using NCCL backend
+        if self.world_size > 1: # multigpu, use DDP with standard NCCL backend for communication routines
+            dist.init_process_group(backend='nccl',
+                                    init_method='env://',
+                                    timeout=datetime.timedelta(minutes=60))
+            self.world_rank = dist.get_rank()
+        else: 
+            self.world_rank =0        
+
+        # Set cuDNN settings after selecting device
+        torch.backends.cudnn.benchmark = True
         
         self.log_to_screen = (self.world_rank==0)
         if torch.cuda.is_available():
-            self.device = torch.cuda.current_device()
+            self.device = torch.device(f"cuda:{self.local_rank}")
         else:
             self.device = torch.device('cpu')
         self.params = params
         print("running on rank {} with world size {}".format(self.world_rank, self.world_size))
+
 
     def init_exp_dir(self, exp_dir):
         if self.world_rank==0:
@@ -87,7 +99,7 @@ class Trainer():
         # get the dataloaders
         self.train_data_loader, self.train_sampler = get_data_loader(self.params, self.params.train_path, dist.is_initialized(), train=True)
         #self.test_data_loader, self.test_sampler = get_data_loader(self.params, self.params.test_path, dist.is_initialized(), train=False)
-        self.val_data_loader, self.valid_sampler = get_data_loader(self.params, self.params.val_path, dist.is_initialized(), train=False)
+        self.val_data_loader, _ = get_data_loader(self.params, self.params.val_path, dist.is_initialized(), train=False)
 
         # get the model
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
@@ -218,6 +230,7 @@ class Trainer():
             data_start = time.time()
             #print("Inputs: ", inputs)
             inputs, targets = inputs.to(self.device), targets.to(self.device)
+      
             tr_start = time.time()
 
             #self.model.zero_grad()
@@ -238,7 +251,8 @@ class Trainer():
                 print(f"step {i}: alloc={a/1e6:.1f} MB res={r/1e6:.1f} MB max={m/1e6:.1f} MB")
  
             # add all the minibatch losses
-            self.logs['train_loss'] += loss.detach()
+            print("Training loss:", loss.detach())
+            self.logs['train_loss'] += loss.detach()  / len(self.train_data_loader)
 
             tr_time += time.time() - tr_start
 

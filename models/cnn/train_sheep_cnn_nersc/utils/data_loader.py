@@ -19,11 +19,11 @@ except ImportError:
 import glob
 
 # Get data loader
-def get_data_loader(params, data_location, distributed, train=True):
+def get_data_loader(params, data_location, distributed, train=True, test=False):
     """Function to get the data loader for training/validation/testing."""
-    mode = 'train' if train else 'valid'
-    # Only freeze eval poses for validation/testing
-    dataset = ShowerDataset(params, data_location, mode=mode, freeze_eval_poses=not train)
+    mode = 'train' if train else 'valid' if not test else 'test'
+
+    dataset = ShowerDataset(params, data_location, mode=mode)
     # define a sampler for distributed training using DDP
     sampler = DistributedSampler(dataset, shuffle=train, drop_last=True) if distributed else None
     batch_size = int(params.local_batch_size if train else params.local_valid_batch_size)
@@ -37,8 +37,8 @@ def get_data_loader(params, data_location, distributed, train=True):
                             drop_last=True,
                             pin_memory=torch.cuda.is_available(), 
                             timeout=120) # timeout to prevent hanging
-    return dataloader, sampler
 
+    return dataloader, sampler
 
 segments_event_data_dtype = np.dtype([
     ('dE', np.float32),  # Energy deposit
@@ -85,21 +85,17 @@ def shower_collate_fn(batch):
 
 class ShowerDataset(Dataset):
          
-    def __init__(self, params, data_location, mode='train', freeze_eval_poses=True, eval_poses_per_event=1):
+    def __init__(self, params, data_location, mode='train'):
 
         """
         Args:
             params:                Parameters from yaml file
             data_location:         Path to dataset directory
             mode:                  'train' | 'valid' | 'test' 
-            freeze_eval_poses:     If True, use fixed poses for validation/testing (deterministic evaluation)
-            eval_poses_per_event:  Evaluation poses per event (average later); only used if freeze_eval_poses is True
         """
 
         self.mode = mode
-        self.freeze_eval_poses = freeze_eval_poses
-        self.eval_poses_per_event = eval_poses_per_event
-
+       
         self._file_dir = data_location
         self._set_dataset_file_list()  # Get list of files in dataset directory
         self._set_events_per_file()  # Get number of events per file + file indices
@@ -139,10 +135,6 @@ class ShowerDataset(Dataset):
         #print(f"Using device: {self._device}")
         #torch.device(self._device)
 
-        # In-memory cache so we only compute a valid pose once per (event_id, pose_idx) -- used for eval only
-        self._eval_pose_cache = {}  # key: (event_id, pose_idx) -> (visible_segments, ve_frac, mg_frac, oob_frac)
-
-
     def __len__(self):
         return np.sum(self._events_per_file)
 
@@ -177,7 +169,7 @@ class ShowerDataset(Dataset):
         features = torch.from_numpy(features).contiguous()  # Already float32
         combined_data = torch.cat([coords.float(), features], dim=1)  # Convert coords to float only for concatenation
 
-        true_KE_initial_tensor = torch.tensor(true_KE_initial / 1000.0, dtype=torch.float32)
+        true_KE_initial_tensor = torch.tensor(true_KE_initial / 1000.0, dtype=torch.float32) # Convert to GeV
 
         # Convert energy fractions to torch tensors
         ve_frac_tensor = torch.tensor(ve_frac, dtype=torch.float32)
@@ -186,6 +178,7 @@ class ShowerDataset(Dataset):
 
         return combined_data, true_KE_initial_tensor, ve_frac_tensor, mg_frac_tensor, oob_frac_tensor
     
+
     # Method to get file_idx, event_idx pair from global idx
     def _decode_idx(self, idx):
         """Decode a global index into a file index and an event index."""
@@ -201,7 +194,7 @@ class ShowerDataset(Dataset):
         return np.random.default_rng(np.uint64(mixed_seed & 0xFFFFFFFFFFFFFFFF))  # Ensure seed fits in uint64
 
     # Method to convert random start position and start direction to set of filtered visible depositions
-    def _get_filtered_segments(self, rng, segments, true_KE_initial, min_visible_energy=5):
+    def _get_filtered_segments(self, rng, segments, true_KE_initial):
         ''' Method to convert random start position and start direction to set of filtered visible depositions
         Inputs:
             - rng: random number generator (different for train/val/test for reproducibility)
@@ -221,30 +214,47 @@ class ShowerDataset(Dataset):
         # Sample a random start position and rotation matrix until the visible energy fraction is above the minimum threshold
         # This ensures that the sampled shower has enough visible energy depositions in the detector volumes
         # TO-DO: Figure out how to sample start position and rotation matrix such that the visible energy fraction is above the minimum threshold more often on first try
-        for _ in range(5000):
-
-            start_pos = self._sample_random_start_position(rng)  # Sample a random start position
-            rotation_matrix = self._sample_random_rotation_matrix(rng)  # Sample a random rotation matrix
-
-            #print("A few segment positions:", segment_positions[:5])  # Debugging line to check segment positions
-            #transformed_segments_xyz = segment_positions @ rotation_matrix.T + start_pos # Shape (N, 3) where N is the number of segments
-            transformed_segments_xyz = np.einsum('ij, kj->ki', rotation_matrix, segment_positions) + start_pos  # Efficient matrix multiplication and addition
-
-            # Check if each segment is within min or max bounds for each dimension
-            # Then, check if xyz of segment is within min and max bounds for any volume
-            # This is done by checking if the segment is within the bounds of any detector module
-            in_any_volume = np.any(
-                np.all((transformed_segments_xyz[:, None, :] >= self._min_bounds) &
-                       (transformed_segments_xyz[:, None, :] <= self._max_bounds), axis=2),
-                axis=1
-            )
-
-            # Check visible energy depositions
-            visible_energy = np.sum(segment_energy[in_any_volume])  # Sum the energy depositions of visible segments
-        
-            #if visible_energy_fraction >= min_visible_energy:
-            if visible_energy >= min_visible_energy:
-                break
+        # Save best try:
+        max_VE_under_threshold = 0.
+        best_transformed_segments = segment_positions
+        best_in_any_volume = np.any(np.all((best_transformed_segments[:, None, :] >= self._min_bounds) &
+                           (best_transformed_segments[:, None, :] <= self._max_bounds), axis=2),
+                            axis=1)
+        try:    
+            for _ in range(5000):
+            
+                start_pos = self._sample_random_start_position(rng)  # Sample a random start position
+                rotation_matrix = self._sample_random_rotation_matrix(rng)  # Sample a random rotation matrix
+    
+                #print("A few segment positions:", segment_positions[:5])  # Debugging line to check segment positions
+                #transformed_segments_xyz = segment_positions @ rotation_matrix.T + start_pos # Shape (N, 3) where N is the number of segments
+                transformed_segments_xyz = np.einsum('ij, kj->ki', rotation_matrix, segment_positions) + start_pos  # Efficient matrix multiplication and addition
+    
+                # Check if each segment is within min or max bounds for each dimension
+                # Then, check if xyz of segment is within min and max bounds for any volume
+                # This is done by checking if the segment is within the bounds of any detector module
+                in_any_volume = np.any(
+                    np.all((transformed_segments_xyz[:, None, :] >= self._min_bounds) &
+                           (transformed_segments_xyz[:, None, :] <= self._max_bounds), axis=2),
+                    axis=1
+                )
+    
+                # Check visible energy depositions
+                visible_energy = np.sum(segment_energy[in_any_volume])  # Sum the energy depositions of visible segments
+            
+                #if visible_energy_fraction >= min_visible_energy:
+                if visible_energy >= self._min_visible_energy:
+                    break
+                elif visible_energy > max_VE_under_threshold:
+                    max_VE_under_threshold = visible_energy
+                    best_transformed_segments = transformed_segments_xyz
+                    best_in_any_volume = in_any_volume
+                else: continue
+        except:
+            print(f"Resampling timed out. Best visible energy achieved was {max_VE_under_threshold} and will be used.", flush=True)
+            visible_energy = max_VE_under_threshold
+            transformed_segments_xyz = best_transformed_segments
+            in_any_volume = best_in_any_volume
 
         # Get visible energy fraction, module gap energy fraction, and uncontained energy fraction
         # visible_energy_fraction is calculated above
@@ -281,8 +291,8 @@ class ShowerDataset(Dataset):
         #print("Sum of Energy Fractions:", visible_energy_fraction+module_gap_energy_fraction+out_of_det_bounds_energy_fraction)
         #
         #if visible_energy_fraction < min_visible_energy:
-        if visible_energy < min_visible_energy:
-            raise RuntimeError(f"Not enough visible energy ({visible_energy}) for event with initial KE {true_KE_initial}. Resampling failed.")
+        if visible_energy < 0.:
+            raise RuntimeError(f"Not enough visible energy ({visible_energy}) for event with initial KE {true_KE_initial}. Resampling and contingency failed.", flush=True)
             
         visible_xyz = transformed_segments_xyz[in_any_volume]  # Get the positions of visible segments
         visible_dE = segment_energy[in_any_volume]  # Get the energy
@@ -294,6 +304,7 @@ class ShowerDataset(Dataset):
 
         return visible_segments, visible_energy_fraction, module_gap_energy_fraction, out_of_det_bounds_energy_fraction
 
+  
     # Method to get uniformly randomly sampled directions
     def _sample_random_rotation_matrix(self, rng):
         """Generate a random rotation matrix -- rng depends on train/val/test mode for reproducibility"""
@@ -429,3 +440,5 @@ class ShowerDataset(Dataset):
         features = np.array(segments['dE'], dtype=np.float32).reshape(-1, 1)
 
         return self._unique_voxel_indices(coords, features)
+    
+   

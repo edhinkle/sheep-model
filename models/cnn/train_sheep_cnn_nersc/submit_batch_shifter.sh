@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --job-name=sheep-dl-full-test
+#SBATCH --job-name=sheep-dl-small-test
 #SBATCH --image=deeplearnphysics/larcv2:ub22.04-cuda12.1-pytorch2.4.0-larndsim
 #SBATCH --module=cvmfs,gpu,nccl-2.18
 #SBATCH --output=shifter_job_log_%j.out
