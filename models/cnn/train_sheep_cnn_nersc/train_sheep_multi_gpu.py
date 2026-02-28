@@ -162,7 +162,6 @@ class Trainer():
             if dist.is_initialized():
                 # shuffles data before every epoch
                 self.train_sampler.set_epoch(epoch)
-                self.valid_sampler.set_epoch(epoch) # <-- added for validation shuffling
                 self.train_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNGs
                 self.val_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNG
             start = time.time()
@@ -252,7 +251,7 @@ class Trainer():
  
             # add all the minibatch losses
             print("Training loss:", loss.detach())
-            self.logs['train_loss'] += loss.detach()  / len(self.train_data_loader)
+            self.logs['train_loss'] += loss.detach() 
 
             tr_time += time.time() - tr_start
 

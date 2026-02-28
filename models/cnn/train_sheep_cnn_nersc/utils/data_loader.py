@@ -97,6 +97,10 @@ class ShowerDataset(Dataset):
         self.mode = mode
        
         self._file_dir = data_location
+        # Set num_files for train/validation/test based on mode
+        self._num_files_train = params.train_files
+        self._num_files_val = params.val_files
+        self._num_files_test = params.test_files
         self._set_dataset_file_list()  # Get list of files in dataset directory
         self._set_events_per_file()  # Get number of events per file + file indices
 
@@ -194,7 +198,7 @@ class ShowerDataset(Dataset):
         return np.random.default_rng(np.uint64(mixed_seed & 0xFFFFFFFFFFFFFFFF))  # Ensure seed fits in uint64
 
     # Method to convert random start position and start direction to set of filtered visible depositions
-    def _get_filtered_segments(self, rng, segments, true_KE_initial):
+    def _get_filtered_segments(self, rng, segments, true_KE_initial, min_visible_energy=5.0):
         ''' Method to convert random start position and start direction to set of filtered visible depositions
         Inputs:
             - rng: random number generator (different for train/val/test for reproducibility)
@@ -369,9 +373,11 @@ class ShowerDataset(Dataset):
 
         stop_at = -1
         if self.mode == 'train':
-            stop_at = 1000
-        else:
-            stop_at = 125
+            stop_at = self._num_files_train
+        elif self.mode == 'valid':
+            stop_at = self._num_files_val
+        elif self.mode == 'test':            
+            stop_at = self._num_files_test
 
         for file in glob.glob(self._file_dir + '*.hdf5'):
             self._file_list.append(file)

@@ -47,9 +47,9 @@ def bn_hook(name):
         batch_ids = coords[:, 0]  # Assuming batch ID is in the first column of coordinates
 
         # debug batches
-        print("Num points:", feats.shape[0])
-        print("Num batches:", batch_ids.unique())
-        print("Feature dim:", feats.shape[1])
+        #print("Num points:", feats.shape[0])
+        #print("Num batches:", batch_ids.unique())
+        #print("Feature dim:", feats.shape[1])
 
         # global batch stats
         #batch_mean = feats.mean(dim=0)
