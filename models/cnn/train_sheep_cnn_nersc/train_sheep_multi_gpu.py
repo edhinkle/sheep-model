@@ -136,6 +136,10 @@ class Trainer():
         # set loss functions
         if params.loss_fn == 'MSELoss':
             self.loss_func = torch.nn.MSELoss()
+        elif params.loss_fn == 'L1Loss':
+            self.loss_func = torch.nn.L1Loss()
+        elif params.loss_fn == 'HuberLoss':
+            self.loss_func = torch.nn.HuberLoss()
 
         # checkpointing
         self.iters = 0

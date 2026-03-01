@@ -20,7 +20,7 @@ default: &default
   valid_batch_size: 1000
   bn_momentum: 0.01
   # Loss function
-  loss_fn: 'MSELoss'
+  loss_fn: 'HuberLoss'
   # misc
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
