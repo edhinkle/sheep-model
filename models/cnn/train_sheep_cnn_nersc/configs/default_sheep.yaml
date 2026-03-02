@@ -21,6 +21,7 @@ default: &default
   bn_momentum: 0.01
   # Loss function
   loss_fn: 'HuberLoss'
+  train_logE: !!bool True
   # misc
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
