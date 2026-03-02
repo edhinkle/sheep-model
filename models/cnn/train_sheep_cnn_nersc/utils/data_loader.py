@@ -110,6 +110,7 @@ class ShowerDataset(Dataset):
         self._voxel_size = np.array(params.voxel_size)
         self._min_visible_energy = params.min_visible_energy  # For numerical stability in MinkowskiEngine (Minimum energy target) 
         self._fid_vol_cut = params.fid_vol_cut  # Fiducial volume cut in cm
+        self._train_logE = params.train_logE  # Whether to take log of energy for training targets (for better training stability)
 
         # Get min and max bounds for each detector module
         self._min_bounds = self._detector_active_regions[:, 0, :] # Shape (M, 3) where M is the number of detector modules/active volumes
@@ -173,8 +174,15 @@ class ShowerDataset(Dataset):
         features = torch.from_numpy(features).contiguous()  # Already float32
         combined_data = torch.cat([coords.float(), features], dim=1)  # Convert coords to float only for concatenation
 
-        true_KE_initial_tensor = torch.tensor(true_KE_initial / 1000.0, dtype=torch.float32) # Convert to GeV
-
+        #true_KE_initial_tensor = torch.tensor(true_KE_initial / 1000.0, dtype=torch.float32) # Convert to GeV
+        # Instead of converting to GeV, take log of energy to target output range
+        true_KE_initial_tensor = torch.tensor(true_KE_initial, dtype=torch.float32) 
+        if self._train_logE == True:
+            true_KE_initial_tensor = torch.tensor(true_KE_initial, dtype=torch.float32) 
+            true_KE_initial_tensor = torch.log(true_KE_initial_tensor)  
+        else:
+            true_KE_initial_tensor = torch.tensor(true_KE_initial / 1000.0, dtype=torch.float32) # Convert to GeV
+        #print("Took log of true KE initial for better training stability. Original KE:", true_KE_initial, "Log KE:", true_KE_initial_tensor.item())
         # Convert energy fractions to torch tensors
         ve_frac_tensor = torch.tensor(ve_frac, dtype=torch.float32)
         mg_frac_tensor = torch.tensor(mg_frac, dtype=torch.float32)
