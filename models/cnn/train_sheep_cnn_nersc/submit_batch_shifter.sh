@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --time=4:05:00
+#SBATCH --time=0:16:00
 #SBATCH --constraint=gpu
 #SBATCH --account=dune
 #SBATCH --qos=regular
@@ -7,14 +7,14 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --job-name=sheep-dl-100k-logE-huber
+#SBATCH --job-name=sheep-dl-100k-linearE-MSE-NoSyncBN
 #SBATCH --image=deeplearnphysics/larcv2:ub22.04-cuda12.1-pytorch2.4.0-larndsim
 #SBATCH --module=cvmfs,gpu,nccl-2.18
 #SBATCH --output=shifter_job_log_%j.out
 
 config_file=./configs/default_sheep.yaml
 config="default"
-run_num="ddp-shifter-HUBERLOSS-LogEnergyScale-100kSamples"
+run_num="ddp-shifter-MSELOSS-LinearEnergyScale-100kSamples-LR_0.0001_NO_SyncBN"
 
 # this is the path to your local env for libs on top of the container
 # here we have created a local dir in our ~/.local/perlmutter path

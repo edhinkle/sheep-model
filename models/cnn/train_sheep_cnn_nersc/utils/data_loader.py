@@ -26,7 +26,7 @@ def get_data_loader(params, data_location, distributed, train=True, test=False):
     dataset = ShowerDataset(params, data_location, mode=mode)
     # define a sampler for distributed training using DDP
     sampler = DistributedSampler(dataset, shuffle=train, drop_last=True) if distributed else None
-    batch_size = int(params.local_batch_size if train else params.local_valid_batch_size)
+    batch_size = int(params.local_batch_size if train else params.local_valid_batch_size if not test else params.local_test_batch_size)
 
     dataloader = DataLoader(dataset,
                             batch_size=batch_size,

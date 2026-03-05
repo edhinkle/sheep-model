@@ -104,11 +104,11 @@ class Trainer():
         # get the model
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
         # convert batch norm layers to sync batch norm for distributed training
-        if dist.is_initialized():
-            self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
-        for name, module in self.model.named_modules():
-            if isinstance(module, ME.MinkowskiSyncBatchNorm):
-                module.register_forward_hook(models.sheep_cnn.bn_hook(name))
+        #if dist.is_initialized():
+        #    self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
+        #for name, module in self.model.named_modules():
+        #    if isinstance(module, ME.MinkowskiSyncBatchNorm):
+        #        module.register_forward_hook(models.sheep_cnn.bn_hook(name))
 
         total_params = sum(p.numel() for p in self.model.parameters())
         print(f"Total parameters: {total_params:,}")
@@ -131,14 +131,14 @@ class Trainer():
         # set an optimizer and learning rate scheduler
         optimizer_fn = getattr(optim, self.params.optimizer)
         self.optimizer = optimizer_fn(self.model.parameters(), lr=self.params.lr)
-        self.scheduler = None #lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.params.max_cosine_lr_epochs)
+        self.scheduler = lr_scheduler.ConstantLR(self.optimizer, factor=self.params.lr_start_factor, total_iters=self.params.lr_epoch_switch)
 
         # set loss functions
-        if params.loss_fn == 'MSELoss':
+        if self.params.loss_fn == 'MSELoss':
             self.loss_func = torch.nn.MSELoss()
-        elif params.loss_fn == 'L1Loss':
+        elif self.params.loss_fn == 'L1Loss':
             self.loss_func = torch.nn.L1Loss()
-        elif params.loss_fn == 'HuberLoss':
+        elif self.params.loss_fn == 'HuberLoss':
             self.loss_func = torch.nn.HuberLoss()
 
         # checkpointing
@@ -183,7 +183,7 @@ class Trainer():
                 dist.barrier()  # <-- align all ranks following validation on one epoch
 
             # learning rate scheduler
-            #self.scheduler.step()
+            self.scheduler.step()
 
             # keep track of best model according to validation loss
             if self.logs['val_loss'] <= best_loss:
@@ -254,7 +254,7 @@ class Trainer():
                 print(f"step {i}: alloc={a/1e6:.1f} MB res={r/1e6:.1f} MB max={m/1e6:.1f} MB")
  
             # add all the minibatch losses
-            print("Training loss:", loss.detach())
+            #print("Training loss:", loss.detach())
             self.logs['train_loss'] += loss.detach() 
 
             tr_time += time.time() - tr_start
@@ -332,6 +332,11 @@ class Trainer():
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if self.scheduler is not None:
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
+        total = 0
+        for p in self.model.parameters():
+            total += p.abs().sum().item()
+        print("Checkpoint loaded: epoch {}, iters {}, total abs param sum {}".format(self.startEpoch, self.iters, total))
 
 if __name__ == '__main__':
     # parsers for any cmd line args

@@ -13,15 +13,17 @@ default: &default
   allow_bias: !!bool False
   # optimization
   lr: 0.0001
+  lr_epoch_switch: 20
+  lr_start_factor: 1.0
   optimizer: 'Adam'
-  max_epochs: 100
-  max_cosine_lr_epochs: 100
+  max_epochs: 5
+  max_cosine_lr_epochs: 5
   batch_size: 3200
   valid_batch_size: 1000
   bn_momentum: 0.01
   # Loss function
-  loss_fn: 'HuberLoss'
-  train_logE: !!bool True
+  loss_fn: 'MSELoss'
+  train_logE: !!bool False
   # misc
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
@@ -50,6 +52,6 @@ default: &default
 
 test:  # inherit configs from the alias default
   <<: *default
-  batch_size: 1000
+  test_batch_size: 500
   # Energy scaled to /1000 for training stability
   energy_scaled: 1000.0
