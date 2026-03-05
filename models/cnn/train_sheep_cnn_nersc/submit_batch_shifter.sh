@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --time=0:16:00
+#SBATCH --time=1:50:00
 #SBATCH --constraint=gpu
 #SBATCH --account=dune
 #SBATCH --qos=regular

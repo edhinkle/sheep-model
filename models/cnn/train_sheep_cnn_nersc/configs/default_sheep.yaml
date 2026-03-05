@@ -16,8 +16,8 @@ default: &default
   lr_epoch_switch: 20
   lr_start_factor: 1.0
   optimizer: 'Adam'
-  max_epochs: 5
-  max_cosine_lr_epochs: 5
+  max_epochs: 50
+  max_cosine_lr_epochs: 50
   batch_size: 3200
   valid_batch_size: 1000
   bn_momentum: 0.01
