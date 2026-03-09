@@ -21,11 +21,11 @@ def sheep_cnn(params, **kwargs):
         if isinstance(m, ME.MinkowskiSyncBatchNorm):
             m.momentum = params.bn_momentum
     
-    for name, module in model.named_modules():
-        if isinstance(module, ME.MinkowskiBatchNorm):
-            module.register_forward_hook(bn_hook(name))
-        if isinstance(module, ME.MinkowskiSyncBatchNorm):
-            module.register_forward_hook(bn_hook(name))
+    #for name, module in model.named_modules():
+    #    if isinstance(module, ME.MinkowskiBatchNorm):
+    #        module.register_forward_hook(bn_hook(name))
+    #    if isinstance(module, ME.MinkowskiSyncBatchNorm):
+    #        module.register_forward_hook(bn_hook(name))
 
     # Debug test
     #for name, m in model.named_modules():
