@@ -106,7 +106,7 @@ class Tester():
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
         # convert batch norm layers to sync batch norm for distributed training
         #if dist.is_initialized():
-        #    self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
+        self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
         #for name, module in self.model.named_modules():
         #    if isinstance(module, ME.MinkowskiSyncBatchNorm):
         #        module.register_forward_hook(models.sheep_cnn.bn_hook(name))

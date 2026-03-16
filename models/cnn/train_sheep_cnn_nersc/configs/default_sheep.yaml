@@ -12,12 +12,12 @@ default: &default
   feature_size: 1
   allow_bias: !!bool False
   # optimization
-  lr: 0.0001
+  lr: 0.001
   lr_epoch_switch: 20
-  lr_start_factor: 1.0
+  lr_start_factor: 0.1
   optimizer: 'Adam'
-  max_epochs: 50
-  max_cosine_lr_epochs: 50
+  max_epochs: 25
+  max_cosine_lr_epochs: 25
   batch_size: 3200
   valid_batch_size: 1000
   bn_momentum: 0.01
