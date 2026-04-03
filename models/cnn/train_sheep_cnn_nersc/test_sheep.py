@@ -89,7 +89,7 @@ class Tester():
         if self.world_rank == 0:
             with open(self.params['log_path'], 'w') as f:
                 writer = csv.writer(f)
-                writer.writerow(['label', 'prediction', 'visible_energy'])
+                writer.writerow(['label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
 
 
         self.params['global_batch_size'] = self.params.batch_size
@@ -139,7 +139,8 @@ class Tester():
         self.restore_checkpoint(self.params.checkpoint_path)
 
         # launch testing
-        self.labels, self.predictions, self.visible_energy = self.test()
+        self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices = self.test()
+        #print("Start positions:", self.start_positions)
         if self.train_logE == True:
             self.labels = np.exp(self.labels)
             self.predictions = np.exp(self.predictions)
@@ -154,7 +155,7 @@ class Tester():
             if self.world_rank == 0:
                 with open(self.params['log_path'], 'a') as f:
                     writer = csv.writer(f)
-                    writer.writerow([self.labels[i], self.predictions[i], self.visible_energy[i]])
+                    writer.writerow([self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
         #self.plot_results()
 
 
@@ -171,17 +172,29 @@ class Tester():
         labels = []
         preds = []
         visible_energy = []
+        ve_frac = []
+        mg_frac = []
+        oob_frac = []
+        start_positions = []
+        rotation_matrices = []
 
         # Initialize a progress bar
         pbar = tqdm(total=len(self.test_data_loader), position=0, leave=True)
 
         with torch.no_grad():
-            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac) in enumerate(self.test_data_loader):
+            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.test_data_loader):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
+                VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
                 outputs = self.model(inputs)
                 labels.append(targets.detach().reshape(-1))
                 preds.append(outputs.detach().reshape(-1))
-                print("Input type: ", type(inputs[0]))
+                ve_frac.append(VE_frac.detach().reshape(-1))
+                mg_frac.append(MG_frac.detach().reshape(-1))
+                oob_frac.append(OOB_frac.detach().reshape(-1))
+                start_positions.append(start_pos.detach())
+                rotation_matrices.append(rot_mat.detach())
+                #print("Input type: ", type(inputs[0]))
+                #print("Start positions:", start_positions[-1])
 
                 loss = self.loss_func(outputs, targets)
                 self.logs['test_loss'] += loss.detach() 
@@ -205,7 +218,7 @@ class Tester():
         if self.log_to_screen:
             print("Test time: {:.2f}s".format(test_time))
 
-        return torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy()
+        return torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy()
 
     def plot_results(self):
 

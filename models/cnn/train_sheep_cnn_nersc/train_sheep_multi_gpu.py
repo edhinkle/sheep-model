@@ -104,11 +104,11 @@ class Trainer():
         # get the model
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
         # convert batch norm layers to sync batch norm for distributed training
-        #if dist.is_initialized():
-        #    self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
-        #for name, module in self.model.named_modules():
-        #    if isinstance(module, ME.MinkowskiSyncBatchNorm):
-        #        module.register_forward_hook(models.sheep_cnn.bn_hook(name))
+        if dist.is_initialized():
+            self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
+        for name, module in self.model.named_modules():
+            if isinstance(module, ME.MinkowskiSyncBatchNorm):
+                module.register_forward_hook(models.sheep_cnn.bn_hook(name))
 
         total_params = sum(p.numel() for p in self.model.parameters())
         print(f"Total parameters: {total_params:,}")
@@ -131,7 +131,9 @@ class Trainer():
         # set an optimizer and learning rate scheduler
         optimizer_fn = getattr(optim, self.params.optimizer)
         self.optimizer = optimizer_fn(self.model.parameters(), lr=self.params.lr)
-        self.scheduler = lr_scheduler.ConstantLR(self.optimizer, factor=self.params.lr_start_factor, total_iters=self.params.lr_epoch_switch)
+        self.schedulerConstantLR = lr_scheduler.ConstantLR(self.optimizer, factor=self.params.lr_start_factor, total_iters=self.params.lr_epochs_low)
+        self.schedulerExponentialLR = lr_scheduler.ExponentialLR(self.optimizer, gamma=self.params.lr_decay_gamma)
+        self.scheduler = self.schedulerConstantLR
 
         # set loss functions
         if self.params.loss_fn == 'MSELoss':
@@ -184,6 +186,8 @@ class Trainer():
 
             # learning rate scheduler
             self.scheduler.step()
+            for param_group in self.optimizer.param_groups:
+                print(param_group['lr'])
 
             # keep track of best model according to validation loss
             if self.logs['val_loss'] <= best_loss:
@@ -228,12 +232,12 @@ class Trainer():
         if self.log_to_screen:
             print("Starting epoch {} with {} batches".format(self.epoch+1, len(self.train_data_loader)))
 
-        for i, (inputs, targets, VE_frac, MG_frac, OOB_frac) in enumerate(self.train_data_loader):
+        for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.train_data_loader):
             self.iters += 1
             data_start = time.time()
             #print("Inputs: ", inputs)
             inputs, targets = inputs.to(self.device), targets.to(self.device)
-      
+
             tr_start = time.time()
 
             #self.model.zero_grad()
@@ -282,7 +286,7 @@ class Trainer():
             print("Starting validation with {} batches".format(len(self.val_data_loader)))
 
         with torch.no_grad():
-            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac) in enumerate(self.val_data_loader):
+            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.val_data_loader):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
                 outputs = self.model(inputs)
                 loss = self.loss_func(outputs, targets)
@@ -305,8 +309,8 @@ class Trainer():
         if not model:
             model = self.model
 
-        # Save persistent checkpoints for every fifth epoch
-        if self.epoch % 5 == 0 and self.epoch > 0:
+        # Save persistent checkpoints for every tenth epoch
+        if self.epoch % 10 == 0 and self.epoch > 0:
             torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict(), 'scheduler_state_dict': (self.scheduler.state_dict() if self.scheduler is not None else None)}, checkpoint_path.replace('.tar', '_epoch_{}_iters{}.tar'.format(self.epoch, self.iters)))
         
         # Always save the latest checkpoint (overwritten every epoch)

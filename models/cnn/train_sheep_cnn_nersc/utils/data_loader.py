@@ -36,7 +36,7 @@ def get_data_loader(params, data_location, distributed, train=True, test=False):
                             collate_fn=shower_collate_fn,
                             drop_last=True,
                             pin_memory=torch.cuda.is_available(), 
-                            timeout=120) # timeout to prevent hanging
+                            timeout=150) # timeout to prevent hanging
 
     return dataloader, sampler
 
@@ -57,8 +57,10 @@ def shower_collate_fn(batch):
     ve_frac_list = []
     mg_frac_list = []
     oob_frac_list = []
+    start_pos_list = []
+    rot_mat_list = []
 
-    for batch_idx, (data, label, VE_frac, MG_frac, OOB_frac) in enumerate(batch):
+    for batch_idx, (data, label, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(batch):
         # Set batch index
         batch_data = data.clone()
         #print("Batch data shape:", batch_data.shape)
@@ -70,6 +72,8 @@ def shower_collate_fn(batch):
         ve_frac_list.append(VE_frac)
         mg_frac_list.append(MG_frac)
         oob_frac_list.append(OOB_frac)
+        start_pos_list.append(start_pos)
+        rot_mat_list.append(rot_mat)
     
     # Concatenate all coordinates and features into single tensors
     batched_data = torch.cat(data_list, dim=0)
@@ -77,10 +81,12 @@ def shower_collate_fn(batch):
     batched_ve_frac = torch.stack(ve_frac_list, dim=0).reshape(-1, 1)
     batched_mg_frac = torch.stack(mg_frac_list, dim=0).reshape(-1, 1)
     batched_oob_frac = torch.stack(oob_frac_list, dim=0).reshape(-1, 1)
+    batched_start_pos = torch.stack(start_pos_list, dim=0) # Shape (B, 3)
+    batched_rot_mat = torch.stack(rot_mat_list, dim=0) # Shape (
 
     #print("Batched data:", batched_data)
 
-    return batched_data, batched_labels, batched_ve_frac, batched_mg_frac, batched_oob_frac
+    return batched_data, batched_labels, batched_ve_frac, batched_mg_frac, batched_oob_frac, batched_start_pos, batched_rot_mat
 
 
 class ShowerDataset(Dataset):
@@ -147,6 +153,8 @@ class ShowerDataset(Dataset):
 
         file_idx, event_local_idx = self._decode_idx(idx)  # Decode the global index into file and event indices
         h5_file_name = self._file_list[file_idx]
+        #print(f"Loading file: {h5_file_name}, File index: {file_idx}, Event local index: {event_local_idx}")  # Debugging line to check which file and event is being loaded
+        #print(f"Event global index: {idx}")  # Debugging line to check global index being loaded
         with h5py.File(h5_file_name, 'r') as h5_file:  # Open the HDF5 file
             file_events = h5_file['events']  # Access the events dataset
             file_segments = h5_file['segments']
@@ -162,8 +170,9 @@ class ShowerDataset(Dataset):
             #    print("Total dE:", np.sum(segments['dE']))  # Debugging line to check total dE for the event
 
             # Same for train/validation/test now
-            rng = self._get_deterministic_rng_per_event(event_id)
-            vis_segs, ve_frac, mg_frac, oob_frac = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
+            rng = self._get_deterministic_rng_per_event(idx)
+            #print(f"Event ID: {idx}, RNG state: {rng.bit_generator.state}")  # Debugging line to check RNG state for each event
+            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
         #filtered_segments = transformed_segments[segments_det_mask]
         
         # Voxelize the filtered segments SPARSELY
@@ -187,9 +196,14 @@ class ShowerDataset(Dataset):
         ve_frac_tensor = torch.tensor(ve_frac, dtype=torch.float32)
         mg_frac_tensor = torch.tensor(mg_frac, dtype=torch.float32)
         oob_frac_tensor = torch.tensor(oob_frac, dtype=torch.float32)
+        start_pos_tensor = torch.tensor(start_pos, dtype=torch.float32)
+        rot_mat_tensor = torch.tensor(rot_mat, dtype=torch.float32)
+        #print("Start point:", start_pos_tensor)
+        ##print("Rotation matrix:", rot_mat_tensor)
 
-        return combined_data, true_KE_initial_tensor, ve_frac_tensor, mg_frac_tensor, oob_frac_tensor
-    
+
+        return combined_data, true_KE_initial_tensor, ve_frac_tensor, mg_frac_tensor, oob_frac_tensor, start_pos_tensor, rot_mat_tensor
+
 
     # Method to get file_idx, event_idx pair from global idx
     def _decode_idx(self, idx):
@@ -201,8 +215,11 @@ class ShowerDataset(Dataset):
     
     # Set deterministic rng per event for validation/testing
     def _get_deterministic_rng_per_event(self, event_id: int):
-        """Get a deterministic random number generator for a given event and epoch for determinstic training and validation poses."""
-        mixed_seed = (self._RANDOM_SEED * 1_000_0003) ^ (int(event_id) * 97) ^ (int(self._epoch) * 1_000_000 + 1337)
+        """Get a deterministic random number generator for a given event and epoch for determinstic poses."""
+        if self.mode == 'train' or self.mode == 'test':
+            mixed_seed = (self._RANDOM_SEED * 1_000_0003) ^ (int(event_id) * 97) ^ (int(self._epoch) * 1_000_000 + 1337)
+        elif self.mode == 'valid':
+            mixed_seed = (self._RANDOM_SEED * 1_000_0003) ^ (int(event_id) * 97)
         return np.random.default_rng(np.uint64(mixed_seed & 0xFFFFFFFFFFFFFFFF))  # Ensure seed fits in uint64
 
     # Method to convert random start position and start direction to set of filtered visible depositions
@@ -261,12 +278,16 @@ class ShowerDataset(Dataset):
                     max_VE_under_threshold = visible_energy
                     best_transformed_segments = transformed_segments_xyz
                     best_in_any_volume = in_any_volume
+                    best_start_pos = start_pos
+                    best_rotation_matrix = rotation_matrix
                 else: continue
         except:
             print(f"Resampling timed out. Best visible energy achieved was {max_VE_under_threshold} and will be used.", flush=True)
             visible_energy = max_VE_under_threshold
             transformed_segments_xyz = best_transformed_segments
             in_any_volume = best_in_any_volume
+            start_pos = best_start_pos
+            rotation_matrix = best_rotation_matrix
 
         # Get visible energy fraction, module gap energy fraction, and uncontained energy fraction
         # visible_energy_fraction is calculated above
@@ -314,7 +335,7 @@ class ShowerDataset(Dataset):
         visible_segments['y'] = visible_xyz[:, 1]  # Fill the y coordinate
         visible_segments['z'] = visible_xyz[:, 2]  # Fill the z coordinate
 
-        return visible_segments, visible_energy_fraction, module_gap_energy_fraction, out_of_det_bounds_energy_fraction
+        return visible_segments, visible_energy_fraction, module_gap_energy_fraction, out_of_det_bounds_energy_fraction, start_pos, rotation_matrix
 
   
     # Method to get uniformly randomly sampled directions

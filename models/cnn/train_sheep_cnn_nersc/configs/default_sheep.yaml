@@ -12,18 +12,16 @@ default: &default
   feature_size: 1
   allow_bias: !!bool False
   # optimization
-  lr: 0.001
-  lr_epoch_switch: 20
-  lr_start_factor: 0.1
+  lr: 0.0001
+  lr_epochs_low: 20
+  lr_epochs_high: 60
+  lr_start_factor: 1.0
+  lr_decay_gamma: 0.975
   optimizer: 'Adam'
-  max_epochs: 25
-  max_cosine_lr_epochs: 25
-  batch_size: 3200
-  valid_batch_size: 1000
+  max_epochs: 150
+  batch_size: 3125
+  valid_batch_size: 500
   bn_momentum: 0.01
-  # Loss function
-  loss_fn: 'MSELoss'
-  train_logE: !!bool False
   # misc
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
@@ -31,9 +29,9 @@ default: &default
   train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/ELECTRON_SAMPLES/CONVERT2H5/TRAIN/'
   test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/ELECTRON_SAMPLES/CONVERT2H5/TEST/'
   val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/ELECTRON_SAMPLES/CONVERT2H5/VALIDATION/'
-  train_files: 1600
-  val_files: 200
-  test_files: 200
+  train_files: 4000
+  val_files: 1000
+  test_files: 1000
   # detector-based data augmentation
   start_xyz_range: [[-60, -60, -60], 
                     [ 60,  60,  60]] 
@@ -50,8 +48,71 @@ default: &default
   min_visible_energy: 2.0
   fid_vol_cut: 2.0
 
-test:  # inherit configs from the alias default
+# Variations on the default config for different training and evaluation scenarios
+mse_lin:
+  <<: *default
+  loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+mse_log:
+  <<: *default
+  loss_fn: 'MSELoss'
+  train_logE: !!bool True
+
+l1_lin:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+l1_log:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+huber_lin:
+  <<: *default
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool False
+
+huber_log:
+  <<: *default  
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool True
+
+# Configs for testing the trained model on the test set, with some modifications for stability and speed
+test: &test # inherit configs from the alias default
   <<: *default
   test_batch_size: 500
   # Energy scaled to /1000 for training stability
   energy_scaled: 1000.0
+
+test_mse_lin:
+  <<: *test
+  loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+test_mse_log:
+  <<: *test
+  loss_fn: 'MSELoss'
+  train_logE: !!bool True
+
+test_l1_lin:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+test_l1_log:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+test_huber_lin:
+  <<: *test
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool False
+
+test_huber_log:
+  <<: *test
+  loss_fn: 'HuberLoss'    
+  train_logE: !!bool True
+
