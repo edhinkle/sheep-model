@@ -21,8 +21,8 @@
 /gps/ene/gradient 0
 /gps/ene/intercept 1
 /gps/ene/min 10 MeV
-/gps/ene/max 2000 MeV
-# Changed energy distribution to be smaller range for now
+/gps/ene/max 15000 MeV
+# For 2x2, generated showers up to 2000 MeV; up to 15000 MeV for ND-LAr
 
 # Set the position of the particle gun -- just emit from the origin.
 /gps/pos/type Point

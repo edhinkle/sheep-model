@@ -3,8 +3,8 @@
 GEOMETRY="simple_LAr_geo.gdml"
 OUTPUT=$1
 NEVENTS=$2
-EDEP_MACRO="electron_sim"
-OUTDIR="/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/ELECTRON_SAMPLES"
+EDEP_MACRO="electron_sim_NDLAr"
+OUTDIR="/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES"
 INDIR="/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/sample_gen"
 FILE_INDEX=$3
 
