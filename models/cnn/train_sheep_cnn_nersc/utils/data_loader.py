@@ -36,7 +36,7 @@ def get_data_loader(params, data_location, distributed, train=True, test=False):
                             collate_fn=shower_collate_fn,
                             drop_last=True,
                             pin_memory=torch.cuda.is_available(), 
-                            timeout=150) # timeout to prevent hanging
+                            timeout=600) # timeout to prevent hanging
 
     return dataloader, sampler
 
@@ -110,7 +110,6 @@ class ShowerDataset(Dataset):
         self._set_dataset_file_list()  # Get list of files in dataset directory
         self._set_events_per_file()  # Get number of events per file + file indices
 
-        self._start_pos_range = np.array(params.start_xyz_range)  # Range for sampling random start position
         self._detector_active_regions = np.array(params.detector_active_regions)
         self._RANDOM_SEED = int(params.random_seed)
         self._voxel_size = np.array(params.voxel_size)
@@ -379,9 +378,6 @@ class ShowerDataset(Dataset):
     # Method to get random start position
     def _sample_random_start_position(self, rng):
         """Sample a random start position within the given range -- rng depends on train/val/test mode for reproducibility"""
-        #x_start = rng.uniform(self._start_pos_range[0][0], self._start_pos_range[1][0])
-        #y_start = rng.uniform(self._start_pos_range[0][1], self._start_pos_range[1][1])
-        #z_start = rng.uniform(self._start_pos_range[0][2], self._start_pos_range[1][2])
 
         # restrict start position to the detector active regions
         num_modules = len(self._detector_active_regions)

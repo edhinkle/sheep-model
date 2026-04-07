@@ -1,0 +1,178 @@
+default: &default
+  num_data_workers: 16
+  # model
+  reps: 2
+  depth: 11
+  filters: 32
+  input_kernel: 7
+  coord_conv: !!bool True
+  pool_mode: 'sum'
+  spatial_size: 1867
+  num_input: 4
+  feature_size: 1
+  allow_bias: !!bool False
+  # optimization
+  lr: 0.0001
+  lr_epochs_low: 20
+  lr_epochs_high: 60
+  lr_start_factor: 1.0
+  lr_decay_gamma: 0.975
+  optimizer: 'Adam'
+  max_epochs: 5
+  batch_size: 1600
+  valid_batch_size: 500
+  bn_momentum: 0.01
+  # misc
+  log_to_screen: !!bool True
+  save_checkpoint: !!bool True
+  # data locations
+  train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/CONVERT2H5/TRAIN/'
+  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/CONVERT2H5/TEST/'
+  val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/CONVERT2H5/VALIDATION/'
+  train_files: 800
+  val_files: 100
+  test_files: 100
+  # detector-based data augmentation
+  detector_active_regions: [[[-347.1055,   -215.67131,   418.1399  ],
+                             [-252.8945,     81.928696,  513.3719  ]],
+                            [[-347.1055,   -215.67131,   518.13995 ],
+                             [-252.8945,     81.928696,  613.3719  ]],
+                            [[-347.1055,   -215.67131,   618.13995 ],
+                             [-252.8945,     81.928696,  713.3719  ]],
+                            [[-347.1055,   -215.67131,   718.13995 ],
+                             [-252.8945,     81.928696,  813.3719  ]],
+                            [[-347.1055,   -215.67131,   818.13995 ],
+                             [-252.8945,     81.928696,  913.3719  ]],
+                            [[-247.1055,   -215.67131,   418.1399  ],
+                             [-152.8945,     81.928696,  513.3719  ]],
+                            [[-247.1055,   -215.67131,   518.13995 ],
+                             [-152.8945,     81.928696,  613.3719  ]],
+                            [[-247.1055,   -215.67131,   618.13995 ],
+                             [-152.8945,     81.928696,  713.3719  ]],
+                            [[-247.1055,   -215.67131,   718.13995 ],
+                             [-152.8945,     81.928696,  813.3719  ]],
+                            [[-247.1055,   -215.67131,   818.13995 ],
+                             [-152.8945,     81.928696,  913.3719  ]],
+                            [[-147.1055,   -215.67131,   418.1399  ],
+                             [ -52.8945,     81.928696,  513.3719  ]],
+                            [[-147.1055,   -215.67131,   518.13995 ],
+                             [ -52.8945,     81.928696,  613.3719  ]],
+                            [[-147.1055,   -215.67131,   618.13995 ],
+                             [ -52.8945,     81.928696,  713.3719  ]],
+                            [[-147.1055,   -215.67131,   718.13995 ],
+                             [ -52.8945,     81.928696,  813.3719  ]],
+                            [[-147.1055,   -215.67131,   818.13995 ],
+                             [ -52.8945,     81.928696,  913.3719  ]],
+                            [[ -47.1055,   -215.67131,   418.1399  ],
+                             [  47.1055,     81.928696,  513.3719  ]],
+                            [[ -47.1055,   -215.67131,   518.13995 ],
+                             [  47.1055,     81.928696,  613.3719  ]],
+                            [[ -47.1055,   -215.67131,   618.13995 ],
+                             [  47.1055,     81.928696,  713.3719  ]],
+                            [[ -47.1055,   -215.67131,   718.13995 ],
+                             [  47.1055,     81.928696,  813.3719  ]],
+                            [[ -47.1055,   -215.67131,   818.13995 ],
+                             [  47.1055,     81.928696,  913.3719  ]],
+                            [[  52.8945,   -215.67131,   418.1399  ],
+                             [ 147.1055,     81.928696,  513.3719  ]],
+                            [[  52.8945,   -215.67131,   518.13995 ],
+                             [ 147.1055,     81.928696,  613.3719  ]],
+                            [[  52.8945,   -215.67131,   618.13995 ],
+                             [ 147.1055,     81.928696,  713.3719  ]],
+                            [[  52.8945,   -215.67131,   718.13995 ],
+                             [ 147.1055,     81.928696,  813.3719  ]],
+                            [[  52.8945,   -215.67131,   818.13995 ],
+                             [ 147.1055,     81.928696,  913.3719  ]],
+                            [[ 152.8945,   -215.67131,   418.1399  ],
+                             [ 247.1055,     81.928696,  513.3719  ]],
+                            [[ 152.8945,   -215.67131,   518.13995 ],
+                             [ 247.1055,     81.928696,  613.3719  ]],
+                            [[ 152.8945,   -215.67131,   618.13995 ],
+                             [ 247.1055,     81.928696,  713.3719  ]],
+                            [[ 152.8945,   -215.67131,   718.13995 ],
+                             [ 247.1055,     81.928696,  813.3719  ]],
+                            [[ 152.8945,   -215.67131,   818.13995 ],
+                             [ 247.1055,     81.928696,  913.3719  ]],
+                            [[ 252.8945,   -215.67131,   418.1399  ],
+                             [ 347.1055,     81.928696,  513.3719  ]],
+                            [[ 252.8945,   -215.67131,   518.13995 ],
+                             [ 347.1055,     81.928696,  613.3719  ]],
+                            [[ 252.8945,   -215.67131,   618.13995 ],
+                             [ 347.1055,     81.928696,  713.3719  ]],
+                            [[ 252.8945,   -215.67131,   718.13995 ],
+                             [ 347.1055,     81.928696,  813.3719  ]],
+                            [[ 252.8945,   -215.67131,   818.13995 ],
+                             [ 347.1055,     81.928696,  913.3719  ]]]
+  random_seed: 0
+  voxel_size: [0.372, 0.372, 0.372]
+  min_visible_energy: 2.0
+  fid_vol_cut: 2.0
+
+# Variations on the default config for different training and evaluation scenarios
+mse_lin:
+  <<: *default
+  loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+mse_log:
+  <<: *default
+  loss_fn: 'MSELoss'
+  train_logE: !!bool True
+
+l1_lin:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+l1_log:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+huber_lin:
+  <<: *default
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool False
+
+huber_log:
+  <<: *default  
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool True
+
+# Configs for testing the trained model on the test set, with some modifications for stability and speed
+test: &test # inherit configs from the alias default
+  <<: *default
+  test_batch_size: 500
+  # Energy scaled to /1000 for training stability
+  energy_scaled: 1000.0
+
+test_mse_lin:
+  <<: *test
+  loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+test_mse_log:
+  <<: *test
+  loss_fn: 'MSELoss'
+  train_logE: !!bool True
+
+test_l1_lin:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+test_l1_log:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+test_huber_lin:
+  <<: *test
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool False
+
+test_huber_log:
+  <<: *test
+  loss_fn: 'HuberLoss'    
+  train_logE: !!bool True
+
