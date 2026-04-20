@@ -1,5 +1,7 @@
 # Modeled after: https://github.com/NERSC/nersc-dl-multigpu/blob/main/utils/data_loader.py
 
+from curses import meta
+
 import torch
 from torch.utils.data import DataLoader, Dataset, get_worker_info
 from torch.utils.data.distributed import DistributedSampler
@@ -7,6 +9,15 @@ import numpy as np
 import sys
 import subprocess
 import os
+
+import sys
+sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/spine/')
+import spine
+from spine.driver import Driver
+import yaml
+import larcv
+import ROOT
+import uproot
 
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -101,6 +112,7 @@ class ShowerDataset(Dataset):
         """
 
         self.mode = mode
+        self.num_workers = params.num_data_workers
        
         self._file_dir = data_location
         # Set num_files for train/validation/test based on mode
@@ -151,10 +163,11 @@ class ShowerDataset(Dataset):
     def __getitem__(self, idx):
 
         file_idx, event_local_idx = self._decode_idx(idx)  # Decode the global index into file and event indices
-        h5_file_name = self._file_list[file_idx]
+        
         #print(f"Loading file: {h5_file_name}, File index: {file_idx}, Event local index: {event_local_idx}")  # Debugging line to check which file and event is being loaded
         #print(f"Event global index: {idx}")  # Debugging line to check global index being loaded
-        with h5py.File(h5_file_name, 'r') as h5_file:  # Open the HDF5 file
+
+        '''with h5py.File(h5_file_name, 'r') as h5_file:  # Open the HDF5 file
             file_events = h5_file['events']  # Access the events dataset
             file_segments = h5_file['segments']
             file_segments_refs = h5_file['segments_ref']
@@ -164,15 +177,63 @@ class ShowerDataset(Dataset):
             segments = file_segments[file_segments_refs[event_id]]
 
             true_KE_initial = float(np.sqrt(np.sum(np.square(event['pxyz_start']))))
-            #if true_KE_initial < 20:
-            #    print("Initial KE:", true_KE_initial)
-            #    print("Total dE:", np.sum(segments['dE']))  # Debugging line to check total dE for the event
 
             # Same for train/validation/test now
             rng = self._get_deterministic_rng_per_event(idx)
             #print(f"Event ID: {idx}, RNG state: {rng.bit_generator.state}")  # Debugging line to check RNG state for each event
-            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)
-        #filtered_segments = transformed_segments[segments_det_mask]
+            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)'''
+
+        # Accessing LARCV files using SPINE parsers
+        DATA_PATH = self._file_list[file_idx]
+        ENTRY = "["+str(event_local_idx)+"]" # Change this to access different entries in the LARCV file.
+        NUM_WORKERS = self.num_workers
+
+        cfg = """
+            base:
+              verbosity: warning
+            io:
+              loader:
+                batch_size: 1
+                shuffle: False
+                num_workers: NUM_WORKERS
+                collate_fn: all
+                dataset:
+                  name: larcv
+                  file_keys: DATA_PATH
+                  entry_list: ENTRY
+                  schema:
+                    input_data:
+                      parser: sparse3d
+                      sparse_event: sparse3d_pcluster
+                    particles:
+                      parser: particle
+                      particle_event: particle_pcluster
+                      sparse_event: sparse3d_pcluster
+                    meta:
+                      parser: meta
+                      sparse_event: sparse3d_pcluster
+            """.replace('DATA_PATH', DATA_PATH).replace('ENTRY', str(ENTRY)).replace('NUM_WORKERS', str(NUM_WORKERS))
+            
+        cfg = yaml.safe_load(cfg)
+        driver = Driver(cfg)
+        data = driver.process()
+
+        # Assume one event loaded at a time
+        particles = data['particles'][0]
+        true_KE_initial = float(particles[0].p)
+
+        # Get positions and energies for each filled voxel:
+        energy_per_voxel = data['input_data'][0][:,4]
+        energy_per_voxel = np.array([[i] for i in energy_per_voxel])
+        positions = data['input_data'][0][:,1:4]
+        meta = data['meta'][0]
+        positions_cm = np.array(meta.to_cm(positions, center=True))
+
+        # Same for train/validation/test now
+        rng = self._get_deterministic_rng_per_event(idx)
+        #print(f"Event ID: {idx}, RNG state: {rng.bit_generator.state}")  # Debugging line to check RNG state for each event
+        vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(rng, positions_cm, energy_per_voxel, true_KE_initial, self._min_visible_energy)
+
         
         # Voxelize the filtered segments SPARSELY
         coords, features = self._voxelize_sparse(vis_segs)
@@ -222,11 +283,12 @@ class ShowerDataset(Dataset):
         return np.random.default_rng(np.uint64(mixed_seed & 0xFFFFFFFFFFFFFFFF))  # Ensure seed fits in uint64
 
     # Method to convert random start position and start direction to set of filtered visible depositions
-    def _get_filtered_segments(self, rng, segments, true_KE_initial, min_visible_energy=5.0):
+    def _get_filtered_segments(self, rng, positions, energy_per_larcv_voxel, true_KE_initial, min_visible_energy=5.0):
         ''' Method to convert random start position and start direction to set of filtered visible depositions
         Inputs:
             - rng: random number generator (different for train/val/test for reproducibility)
-            - segments: array of segments with dE, x, y, z 
+            - positions: array of voxel x, y, z positions (cm)
+            - energy_per_larcv_voxel: array of energy values for each voxel (MeV)
             - true_KE_initial: initial kinetic energy of the shower (for calculating visible energy fraction)
             - min_visible_energy: minimum visible energy required (in MeV)
         Outputs:
@@ -235,16 +297,16 @@ class ShowerDataset(Dataset):
             - start_pos: the sampled start position
             - rotation_matrix: the sampled rotation matrix
         '''
-        # Get segment positions in correct format
-        segment_positions = np.array([segments['x'], segments['y'], segments['z']]).T # Shape (N, 3) where N is the number of segments
-        segment_energy = np.array([segments['dE']]).T  # Shape (N, 1) where N is the number of segments
+        # Get segment positions in correct format -- extraneous for LARCV format
+        #segment_positions = np.array([segments['x'], segments['y'], segments['z']]).T # Shape (N, 3) where N is the number of segments
+        #segment_energy = np.array([segments['dE']]).T  # Shape (N, 1) where N is the number of segments
 
         # Sample a random start position and rotation matrix until the visible energy fraction is above the minimum threshold
         # This ensures that the sampled shower has enough visible energy depositions in the detector volumes
         # TO-DO: Figure out how to sample start position and rotation matrix such that the visible energy fraction is above the minimum threshold more often on first try
         # Save best try:
         max_VE_under_threshold = 0.
-        best_transformed_segments = segment_positions
+        best_transformed_segments = positions
         best_in_any_volume = np.any(np.all((best_transformed_segments[:, None, :] >= self._min_bounds) &
                            (best_transformed_segments[:, None, :] <= self._max_bounds), axis=2),
                             axis=1)
@@ -256,7 +318,7 @@ class ShowerDataset(Dataset):
     
                 #print("A few segment positions:", segment_positions[:5])  # Debugging line to check segment positions
                 #transformed_segments_xyz = segment_positions @ rotation_matrix.T + start_pos # Shape (N, 3) where N is the number of segments
-                transformed_segments_xyz = np.einsum('ij, kj->ki', rotation_matrix, segment_positions) + start_pos  # Efficient matrix multiplication and addition
+                transformed_segments_xyz = np.einsum('ij, kj->ki', rotation_matrix, positions) + start_pos  # Efficient matrix multiplication and addition
     
                 # Check if each segment is within min or max bounds for each dimension
                 # Then, check if xyz of segment is within min and max bounds for any volume
@@ -268,7 +330,7 @@ class ShowerDataset(Dataset):
                 )
     
                 # Check visible energy depositions
-                visible_energy = np.sum(segment_energy[in_any_volume])  # Sum the energy depositions of visible segments
+                visible_energy = np.sum(energy_per_larcv_voxel[in_any_volume])  # Sum the energy depositions of visible segments
             
                 #if visible_energy_fraction >= min_visible_energy:
                 if visible_energy >= self._min_visible_energy:
@@ -299,11 +361,11 @@ class ShowerDataset(Dataset):
         in_abs_det_bounds = np.all((transformed_segments_xyz[:, :] >= self._min_xyz) &
                                    (transformed_segments_xyz[:, :] <= self._max_xyz), axis=1)
         in_mod_gaps = in_abs_det_bounds & ~in_any_volume
-        module_gap_energy = np.sum(segment_energy[in_mod_gaps])
+        module_gap_energy = np.sum(energy_per_larcv_voxel[in_mod_gaps])
 
         # Uncontained energy 
         out_of_detector = ~in_abs_det_bounds
-        out_of_det_bounds_energy = np.sum(segment_energy[out_of_detector])
+        out_of_det_bounds_energy = np.sum(energy_per_larcv_voxel[out_of_detector])
 
         # Calculate energy fractions
         visible_energy_fraction = visible_energy / true_KE_initial  # Calculate the fraction of visible energy compared to the initial kinetic energy
@@ -327,7 +389,7 @@ class ShowerDataset(Dataset):
             raise RuntimeError(f"Not enough visible energy ({visible_energy}) for event with initial KE {true_KE_initial}. Resampling and contingency failed.", flush=True)
             
         visible_xyz = transformed_segments_xyz[in_any_volume]  # Get the positions of visible segments
-        visible_dE = segment_energy[in_any_volume]  # Get the energy
+        visible_dE = energy_per_larcv_voxel[in_any_volume]  # Get the energy
         visible_segments = np.zeros(visible_xyz.shape[0], dtype=segments_event_data_dtype)  # Create an empty array for visible segments
         visible_segments['dE'] = visible_dE.flatten()  # Fill the energy depositions
         visible_segments['x'] = visible_xyz[:, 0]  # Fill the x coordinate
@@ -404,7 +466,7 @@ class ShowerDataset(Dataset):
         elif self.mode == 'test':            
             stop_at = self._num_files_test
 
-        for file in glob.glob(self._file_dir + '*.hdf5'):
+        for file in glob.glob(self._file_dir + '*LARCV.root'): #'*.hdf5'):
             self._file_list.append(file)
             if len(self._file_list) == stop_at:
                 break
@@ -421,9 +483,10 @@ class ShowerDataset(Dataset):
     def _set_events_per_file(self):
         self._events_per_file = []
         for file_name in self._file_list:
-            with h5py.File(file_name, 'r') as f:
-                events = f['events']
-                self._events_per_file.append(len(events))
+            f = ROOT.TFile(file_name)
+            tree = f.Get('sparse3d_pcluster_tree')
+            num_events = tree.GetEntries()
+            self._events_per_file.append(num_events)
         self._events_per_file = np.array(self._events_per_file)
         self._event_total_by_file = np.cumsum(self._events_per_file)  # Cumulative sum to get event indices
         self._event_total_by_file = np.insert(self._event_total_by_file, 0, 0)
