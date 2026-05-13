@@ -84,7 +84,7 @@ class Trainer():
         if self.world_rank == 0 and self.params['resuming']==False:
             with open(self.params['log_path'], 'w') as f:
                 writer = csv.writer(f)
-                writer.writerow(['epoch', 'train_iter', 'train_loss', 'val_loss', 'train_time', 'val_time'])
+                writer.writerow(['epoch', 'train_iter', 'train_loss', 'val_loss', 'train_time', 'val_time', 'train_avg_active_pixels', 'val_avg_active_pixels'])
 
             # Set up batch norm stats logging to file
             with open(self.params['batch_stats_log_path'], 'w') as f:
@@ -206,7 +206,7 @@ class Trainer():
                     self.save_checkpoint(self.params.checkpoint_path, is_best=is_best_loss)
                     with open(self.params['log_path'], 'a', newline='') as f:
                         writer = csv.writer(f)
-                        writer.writerow([self.epoch, self.iters, self.logs['train_loss'], self.logs['val_loss'], tr_time, val_time])
+                        writer.writerow([self.epoch, self.iters, self.logs['train_loss'], self.logs['val_loss'], tr_time, val_time, self.logs['train_avg_active_pixels'], self.logs['val_avg_active_pixels'],])
                     # Save batch norm stats to separate log file
                     with open(self.params['batch_stats_log_path'], 'a', newline='') as f:
                         writer = csv.writer(f)
@@ -228,16 +228,18 @@ class Trainer():
 
         # buffers for logs
         logs_buff = torch.zeros((1), dtype=torch.float32, device=self.device)
+        logs_buff_two = torch.zeros((1), dtype=torch.float32, device=self.device)
         self.logs['train_loss'] = logs_buff[0].view(-1)
+        self.logs['train_avg_active_pixels'] = logs_buff_two[0].view(-1)
         if self.log_to_screen:
             print("Starting epoch {} with {} batches".format(self.epoch+1, len(self.train_data_loader)))
 
         for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.train_data_loader):
             self.iters += 1
             data_start = time.time()
-            #print("Inputs: ", inputs)
+            #print("Inputs: ", inputs.size())
             inputs, targets = inputs.to(self.device), targets.to(self.device)
-
+            #print("Active pixels:",inputs.shape[0])
             tr_start = time.time()
 
             #self.model.zero_grad()
@@ -259,17 +261,27 @@ class Trainer():
  
             # add all the minibatch losses
             #print("Training loss:", loss.detach())
-            self.logs['train_loss'] += loss.detach() 
+            self.logs['train_loss'] += loss.detach()
+            self.logs['train_avg_active_pixels'] += inputs.shape[0]
+            #print("Total active pixels:", self.logs['train_avg_active_pixels'])
 
             tr_time += time.time() - tr_start
 
+            #print(f"Allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB")
+            #print(f"Reserved:  {torch.cuda.memory_reserved()/1e9:.2f} GB")
+        #print("Train loss before data loader adjustment:", self.logs['train_loss'])
+        #print("Train active pixels before data loader adjustment:", self.logs['train_avg_active_pixels'])
         self.logs['train_loss'] /= len(self.train_data_loader)
+        #print("Train loss after data loader adjustment:", self.logs['train_loss'])
+        self.logs['train_avg_active_pixels'] /= len(self.train_data_loader)
+        #print("Data loader length:", len(self.train_data_loader))
 
         # reset the peak counter to measure next epoch separately
         torch.cuda.reset_max_memory_allocated()
 
-        logs_to_reduce = ['train_loss']
+        logs_to_reduce = ['train_loss', 'train_avg_active_pixels']
         if dist.is_initialized(): # reduce the logs across multiple GPUs
+            print("World size: {}, reducing logs across GPUs...".format(dist.get_world_size()))
             for key in logs_to_reduce:
                 dist.all_reduce(self.logs[key].detach())
                 self.logs[key] = float(self.logs[key]/dist.get_world_size())
@@ -281,7 +293,9 @@ class Trainer():
         val_start = time.time()
 
         logs_buff = torch.zeros((1), dtype=torch.float32, device=self.device)
+        logs_buff_two = torch.zeros((1), dtype=torch.float32, device=self.device)
         self.logs['val_loss'] = logs_buff[0].view(-1)
+        self.logs['val_avg_active_pixels'] = logs_buff_two[0].view(-1)
         if self.log_to_screen:
             print("Starting validation with {} batches".format(len(self.val_data_loader)))
 
@@ -294,10 +308,13 @@ class Trainer():
                 #if self.log_to_screen:
                 #    print("Val loss batch {}: {}".format(i, loss.item()))
                 self.logs['val_loss'] += loss.detach()
+                self.logs['val_avg_active_pixels'] += inputs.shape[0] 
+
 
         self.logs['val_loss'] /= len(self.val_data_loader)
+        self.logs['val_avg_active_pixels'] /= len(self.val_data_loader)
         if dist.is_initialized():
-            for key in ['val_loss']:
+            for key in ['val_loss', 'val_avg_active_pixels']:
                 dist.all_reduce(self.logs[key].detach())
                 self.logs[key] = float(self.logs[key]/dist.get_world_size())
 

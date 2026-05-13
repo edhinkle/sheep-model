@@ -186,7 +186,7 @@ class ShowerDataset(Dataset):
         # Accessing LARCV files using SPINE parsers
         DATA_PATH = self._file_list[file_idx]
         ENTRY = "["+str(event_local_idx)+"]" # Change this to access different entries in the LARCV file.
-        NUM_WORKERS = self.num_workers
+        NUM_WORKERS = 0
 
         cfg = """
             base:
