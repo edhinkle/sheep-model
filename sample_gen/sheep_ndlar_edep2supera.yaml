@@ -1,0 +1,31 @@
+# ===============
+# tutorial.yaml
+# ===============
+
+LogLevel:        ERROR
+ActiveDetectors: ["LArBox_lv"]
+MaxSegmentSize:  0.372
+
+BBoxAlgorithm: BBoxInteraction
+BBoxConfig:
+    LogLevel:   ERROR
+    Seed:       -1
+    BBoxSize:   [10000,10000,10000]
+    VoxelSize:  [0.372, 0.372, 0.372]
+    BBoxBottom: [-5000,-5000,-5000]
+    #WorldBoundMax: [-1.e20,-1.e20,-1.e20]
+    #WorldBoundMin: [ 1.e20, 1.e20, 1.e20]
+    
+LabelAlgorithm: LArTPCMLReco3D
+LabelConfig:
+    LogLevel: ERROR
+    DeltaSize:     3
+    ComptonSize:  10
+    LEScatterSize: 2
+    TouchDistance: 1
+    StoreLEScatter:   True
+    SemanticPriority: [1,0,2,3,4]
+    EnergyDepositThreshold: 0.0
+    #WorldBoundMax: [-1.e20,-1.e20,-1.e20]
+    #WorldBoundMin: [ 1.e20, 1.e20, 1.e20]
+    
