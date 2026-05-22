@@ -13,7 +13,7 @@ import os
 import sys
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/spine/')
 import spine
-from spine.driver import Driver
+from spine.io.dataset.larcv import LArCVDataset
 import yaml
 import larcv
 import ROOT
@@ -120,6 +120,8 @@ class ShowerDataset(Dataset):
         self._num_files_val = params.val_files
         self._num_files_test = params.test_files
         self._set_dataset_file_list()  # Get list of files in dataset directory
+        self._larcv_dataset = LArCVDataset(file_keys=self._file_list, schema=params.schema, dtype="float32")
+        #print("File list:",self._file_list)
         self._set_events_per_file()  # Get number of events per file + file indices
 
         self._detector_active_regions = np.array(params.detector_active_regions)
@@ -183,7 +185,7 @@ class ShowerDataset(Dataset):
             #print(f"Event ID: {idx}, RNG state: {rng.bit_generator.state}")  # Debugging line to check RNG state for each event
             vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)'''
 
-        # Accessing LARCV files using SPINE parsers
+        '''# Accessing LARCV files using SPINE parsers
         DATA_PATH = self._file_list[file_idx]
         ENTRY = "["+str(event_local_idx)+"]" # Change this to access different entries in the LARCV file.
         NUM_WORKERS = 0
@@ -216,17 +218,20 @@ class ShowerDataset(Dataset):
             
         cfg = yaml.safe_load(cfg)
         driver = Driver(cfg)
-        data = driver.process()
+        data = driver.process()'''
+        data = self._larcv_dataset[idx]
+        #print(len(self._larcv_dataset))  # Debugging line to check total number of events in dataset
+        print(f"Loaded event {idx} from file {self._file_list[file_idx]} with event file index {event_local_idx}")  # Debugging line to confirm event loading
 
         # Assume one event loaded at a time
-        particles = data['particles'][0]
+        particles = data['particles']
         true_KE_initial = float(particles[0].p)
 
         # Get positions and energies for each filled voxel:
-        energy_per_voxel = data['input_data'][0][:,4]
+        energy_per_voxel = data['input_data'].features
         energy_per_voxel = np.array([[i] for i in energy_per_voxel])
-        positions = data['input_data'][0][:,1:4]
-        meta = data['meta'][0]
+        positions = data['input_data'].coords
+        meta = data['meta']
         positions_cm = np.array(meta.to_cm(positions, center=True))
 
         # Same for train/validation/test now
