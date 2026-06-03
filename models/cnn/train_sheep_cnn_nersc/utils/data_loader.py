@@ -11,13 +11,12 @@ import subprocess
 import os
 
 import sys
-sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/spine/')
+sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/spine/src/spine')
 import spine
 from spine.io.dataset.larcv import LArCVDataset
 import yaml
-import larcv
 import ROOT
-import uproot
+
 
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
@@ -164,7 +163,7 @@ class ShowerDataset(Dataset):
 
     def __getitem__(self, idx):
 
-        file_idx, event_local_idx = self._decode_idx(idx)  # Decode the global index into file and event indices
+        #file_idx, event_local_idx = self._decode_idx(idx)  # Decode the global index into file and event indices
         
         #print(f"Loading file: {h5_file_name}, File index: {file_idx}, Event local index: {event_local_idx}")  # Debugging line to check which file and event is being loaded
         #print(f"Event global index: {idx}")  # Debugging line to check global index being loaded
@@ -219,9 +218,9 @@ class ShowerDataset(Dataset):
         cfg = yaml.safe_load(cfg)
         driver = Driver(cfg)
         data = driver.process()'''
-        data = self._larcv_dataset[idx]
+        data = self._larcv_dataset[idx] # if just using idx, need to make sure idx is deterministics -- added sorted() to glob.glob of file dir
         #print(len(self._larcv_dataset))  # Debugging line to check total number of events in dataset
-        print(f"Loaded event {idx} from file {self._file_list[file_idx]} with event file index {event_local_idx}")  # Debugging line to confirm event loading
+        #print(f"Loaded event {idx} from file {self._file_list[file_idx]} with event file index {event_local_idx}")  # Debugging line to confirm event loading
 
         # Assume one event loaded at a time
         particles = data['particles']
@@ -264,7 +263,8 @@ class ShowerDataset(Dataset):
         start_pos_tensor = torch.tensor(start_pos, dtype=torch.float32)
         rot_mat_tensor = torch.tensor(rot_mat, dtype=torch.float32)
         #print("Start point:", start_pos_tensor)
-        ##print("Rotation matrix:", rot_mat_tensor)
+        #print("Rotation matrix:", rot_mat_tensor)
+        #print("True KE:", true_KE_initial_tensor)
 
 
         return combined_data, true_KE_initial_tensor, ve_frac_tensor, mg_frac_tensor, oob_frac_tensor, start_pos_tensor, rot_mat_tensor
@@ -471,7 +471,7 @@ class ShowerDataset(Dataset):
         elif self.mode == 'test':            
             stop_at = self._num_files_test
 
-        for file in glob.glob(self._file_dir + '*LARCV.root'): #'*.hdf5'):
+        for file in sorted(glob.glob(self._file_dir + '*LARCV.root')): #'*.hdf5'):
             self._file_list.append(file)
             if len(self._file_list) == stop_at:
                 break

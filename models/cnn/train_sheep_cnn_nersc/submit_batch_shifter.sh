@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --time=0:15:00
+#SBATCH --time=0:20:00
 #SBATCH --constraint=gpu
 #SBATCH --account=dune
 #SBATCH --qos=regular
@@ -14,7 +14,7 @@
 
 config_file=./configs/NDLAr_sheep.yaml
 config="l1_log"
-run_num="L1LOSS-LogEnergyScale-50kSample-NDLArTest-500bs-TestNewDL"
+run_num="L1LOSS-LogEnergyScale-50kSample-NDLArTest-500bs-TestNewDLTIME_DW32_BS300"
 
 # this is the path to your local env for libs on top of the container
 # here we have created a local dir in our ~/.local/perlmutter path
@@ -26,6 +26,7 @@ export MASTER_ADDR=$(hostname)
 
 cmd="python train_sheep_multi_gpu.py --yaml_config=$config_file --config=$config --run_num=$run_num"
 
+module load python
 set -x
 srun -l shifter \
     bash -c "

@@ -184,6 +184,7 @@ class Trainer():
             if dist.is_initialized():
                 dist.barrier()  # <-- align all ranks following validation on one epoch
 
+            start_after_val = time.time()
             # learning rate scheduler
             self.scheduler.step()
             for param_group in self.optimizer.param_groups:
@@ -219,11 +220,14 @@ class Trainer():
             # some print statements
             if self.log_to_screen:
                 print('Time taken for epoch {} is {} sec; with {}/{} in tr/val'.format(self.epoch+1, time.time()-start, tr_time, val_time))
+                print('Time taken after validation for epoch {} is {} sec'.format(self.epoch+1, time.time()-start_after_val))
                 print('Loss = {}, Val loss = {}'.format(self.logs['train_loss'], self.logs['val_loss']))
 
 
     def train_one_epoch(self):
         tr_time = 0
+        load_inputs_time = 0
+        total_train_start_time = time.time()
         self.model.train()
 
         # buffers for logs
@@ -234,9 +238,9 @@ class Trainer():
         if self.log_to_screen:
             print("Starting epoch {} with {} batches".format(self.epoch+1, len(self.train_data_loader)))
 
+        end_of_last_step = time.time()
         for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.train_data_loader):
             self.iters += 1
-            data_start = time.time()
             #print("Inputs: ", inputs.size())
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             #print("Active pixels:",inputs.shape[0])
@@ -252,7 +256,8 @@ class Trainer():
             loss.backward()
             self.optimizer.step()
 
-            if i % 25 == 0:
+            # Look at memory usage
+            if i % 1 == 0:
                 # current usage (bytes)
                 a = torch.cuda.memory_allocated()
                 r = torch.cuda.memory_reserved()  # "cached" by allocator
@@ -266,11 +271,14 @@ class Trainer():
             #print("Total active pixels:", self.logs['train_avg_active_pixels'])
 
             tr_time += time.time() - tr_start
+            load_inputs_time += tr_start - end_of_last_step
+            end_of_last_step = time.time()
 
             #print(f"Allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB")
             #print(f"Reserved:  {torch.cuda.memory_reserved()/1e9:.2f} GB")
         #print("Train loss before data loader adjustment:", self.logs['train_loss'])
         #print("Train active pixels before data loader adjustment:", self.logs['train_avg_active_pixels'])
+        print("Input loading time for epoch {}: {} sec".format(self.epoch+1, load_inputs_time))
         self.logs['train_loss'] /= len(self.train_data_loader)
         #print("Train loss after data loader adjustment:", self.logs['train_loss'])
         self.logs['train_avg_active_pixels'] /= len(self.train_data_loader)
@@ -285,6 +293,9 @@ class Trainer():
             for key in logs_to_reduce:
                 dist.all_reduce(self.logs[key].detach())
                 self.logs[key] = float(self.logs[key]/dist.get_world_size())
+
+        tr_time_total = time.time() - total_train_start_time
+        print("Total training time for epoch {}: {} sec".format(self.epoch+1, tr_time_total))
 
         return tr_time
 
