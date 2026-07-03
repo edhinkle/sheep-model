@@ -7,6 +7,7 @@ from xml.parsers.expat import model
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
+import torch.multiprocessing as mp
 import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
@@ -96,13 +97,17 @@ class Trainer():
         self.params['global_valid_batch_size'] = self.params.valid_batch_size
         self.params['local_valid_batch_size'] = int(self.params.valid_batch_size//self.world_size)
 
+        # Switch to file_system strategy
+        # Must be called before creating any DataLoader workers
+        mp.set_sharing_strategy('file_system')
+
         # get the dataloaders
         self.train_data_loader, self.train_sampler = get_data_loader(self.params, self.params.train_path, dist.is_initialized(), train=True)
         #self.test_data_loader, self.test_sampler = get_data_loader(self.params, self.params.test_path, dist.is_initialized(), train=False)
         self.val_data_loader, _ = get_data_loader(self.params, self.params.val_path, dist.is_initialized(), train=False)
 
         # get the model
-        self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
+        self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device, non_blocking=True)
         # convert batch norm layers to sync batch norm for distributed training
         if dist.is_initialized():
             self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
@@ -239,10 +244,10 @@ class Trainer():
             print("Starting epoch {} with {} batches".format(self.epoch+1, len(self.train_data_loader)))
 
         end_of_last_step = time.time()
-        for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.train_data_loader):
+        for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.train_data_loader):
             self.iters += 1
             #print("Inputs: ", inputs.size())
-            inputs, targets = inputs.to(self.device), targets.to(self.device)
+            inputs, targets = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True)
             #print("Active pixels:",inputs.shape[0])
             tr_start = time.time()
 
@@ -311,8 +316,8 @@ class Trainer():
             print("Starting validation with {} batches".format(len(self.val_data_loader)))
 
         with torch.no_grad():
-            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.val_data_loader):
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
+            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.val_data_loader):
+                inputs, targets = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True)
                 outputs = self.model(inputs)
                 loss = self.loss_func(outputs, targets)
 

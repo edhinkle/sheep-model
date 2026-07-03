@@ -19,8 +19,8 @@ default: &default
   lr_decay_gamma: 0.975
   optimizer: 'Adam'
   max_epochs: 1
-  batch_size: 300
-  valid_batch_size: 300
+  batch_size: 256
+  valid_batch_size: 256
   bn_momentum: 0.01
   # misc
   log_to_screen: !!bool True
@@ -118,7 +118,13 @@ default: &default
   random_seed: 0
   voxel_size: [0.372, 0.372, 0.372]
   min_visible_energy: 2.0
-  fid_vol_cut: 2.0
+  inner_wall_fv_cut: 5.0
+  outer_wall_fv_cut: 50.0
+  ds_wall_fv_cut: 150.0
+  ndlar_fv_cut: True
+  ndlar_nue_profile: True
+  nue_profile_file: "/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/nue_properties.csv"
+
 
 # Variations on the default config for different training and evaluation scenarios
 mse_lin:
