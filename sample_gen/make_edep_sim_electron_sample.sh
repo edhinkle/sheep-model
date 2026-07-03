@@ -15,9 +15,14 @@ baseFileName=${EDEP_FILENAME}.${rndSEED}
 EDEP_FILE=${baseFileName}.EDEPSIM.root 
 EDEP_SEEDED_MACRO=${EDEP_MACRO}_${rndSEED}.mac
 LARCV_FILE=${baseFileName}.LARCV.root 
+HDF5_FILE=${baseFileName}.LARCV2HDF5.hdf5
 
 # Go to output directory
 cd ${OUTDIR}
+
+if [[ ! -d "${OUTDIR}/MACROS" ]]; then
+    mkdir -p "${OUTDIR}/MACROS"
+fi    
 
 if [[ ! -d "${OUTDIR}/EDEPSIM" ]]; then
     mkdir -p "${OUTDIR}/EDEPSIM"
@@ -27,8 +32,8 @@ if [[ ! -d "${OUTDIR}/LARCV" ]]; then
     mkdir -p "${OUTDIR}/LARCV"
 fi                                             
 
-if [[ ! -d "${OUTDIR}/MACROS" ]]; then
-    mkdir -p "${OUTDIR}/MACROS"
+if [[ ! -d "${OUTDIR}/HDF5" ]]; then
+    mkdir -p "${OUTDIR}/HDF5"
 fi     
 
 
@@ -55,11 +60,12 @@ edep-sim \
     ${EDEP_SEEDED_MACRO}
 EOF1
 
-echo "Converting edep-sim files to LARCV files using edep2supera."
+echo "Converting edep-sim files to LARCV files using edep2supera. Then, convert file to hdf5"
 
 module load python
 shifter --image=deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim bash << EOF2
 python3 ${INDIR}/edep2supera/bin/run_edep2supera.py -c ${INDIR}/${EDEP2SUPERA_YAML} -o ${LARCV_FILE} ${EDEP_FILE}
+python3 --root_file ${LARCV_FILE} --output_file ${HDF5_FILE}
 EOF2
 
 echo "Removing any existing files with the same name in output directories and moving new outputs to output directories."
@@ -67,10 +73,6 @@ echo "Removing any existing files with the same name in output directories and m
 if [ -f "${OUTDIR}/EDEPSIM/${EDEP_FILE}" ]; then
     rm -f "${OUTDIR}/EDEPSIM/${EDEP_FILE}"
 fi
-
-#if [ -f "${OUTDIR}/CONVERT2H5/${H5_FILE}" ]; then # REPLACED BY edep2supera
-#    rm -f "${OUTDIR}/CONVERT2H5/${H5_FILE}"       # REPLACED BY edep2supera
-#fi                                                # REPLACED BY edep2supera
 
 if [ -f "${OUTDIR}/LARCV/${LARCV_FILE}" ]; then
     rm -f "${OUTDIR}/LARCV/${LARCV_FILE}"      
@@ -80,11 +82,14 @@ if [ -f "${OUTDIR}/MACROS/${EDEP_SEEDED_MACRO}" ]; then
     rm -f "${OUTDIR}/MACROS/${EDEP_SEEDED_MACRO}"
 fi
 
+if [ -f "${OUTDIR}/HDF5/${H5_FILE}" ]; then 
+    rm -f "${OUTDIR}/HDF5/${H5_FILE}"       
+fi                                                
 
-mv ${EDEP_FILE} ${OUTDIR}/EDEPSIM/${EDEP_FILE}
-#mv ${H5_FILE} ${OUTDIR}/CONVERT2H5/${H5_FILE} # REPLACED BY edep2supera
-mv ${LARCV_FILE} ${OUTDIR}/LARCV/${LARCV_FILE}
 mv ${EDEP_SEEDED_MACRO} ${OUTDIR}/MACROS/${EDEP_SEEDED_MACRO}
+mv ${EDEP_FILE} ${OUTDIR}/EDEPSIM/${EDEP_FILE}
+mv ${LARCV_FILE} ${OUTDIR}/LARCV/${LARCV_FILE}
+mv ${HDF5_FILE} ${OUTDIR}/HDF5/${H5_FILE}
 echo "Sample generation complete. Files in ${OUTDIR}/"
 cd ${INDIR}
 echo "Returned to input directory: ${INDIR}/"
