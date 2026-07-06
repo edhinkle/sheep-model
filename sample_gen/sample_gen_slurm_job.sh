@@ -3,7 +3,7 @@
 #SBATCH --account=dune
 #SBATCH --qos=regular
 #SBATCH --constraint=cpu
-#SBATCH --time=9:00:00
+#SBATCH --time=1:15:00
 #SBATCH --nodes=6
 #SBATCH --ntasks-per-node=8
 #SBATCH --cpus-per-task=1
