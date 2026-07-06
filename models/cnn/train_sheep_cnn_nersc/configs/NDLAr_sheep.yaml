@@ -18,7 +18,7 @@ default: &default
   lr_start_factor: 1.0
   lr_decay_gamma: 0.975
   optimizer: 'Adam'
-  max_epochs: 1
+  max_epochs: 25
   batch_size: 256
   valid_batch_size: 256
   bn_momentum: 0.01
@@ -26,9 +26,9 @@ default: &default
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
   # data locations
-  train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/LARCV/TRAIN/'
-  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/LARCV/TEST/'
-  val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/LARCV/VALIDATION/'
+  train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TRAIN/'
+  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/'
+  val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/VALIDATION/'
   train_files: 800
   val_files: 100
   test_files: 100

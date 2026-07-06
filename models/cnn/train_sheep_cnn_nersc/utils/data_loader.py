@@ -195,7 +195,7 @@ class ShowerDataset(Dataset):
         self._num_files_val = params.val_files
         self._num_files_test = params.test_files
         self._set_dataset_file_list()  # Get list of files in dataset directory
-        self._larcv_dataset = LArCVDataset(file_keys=self._file_list, schema=params.schema, dtype="float32")
+        #self._larcv_dataset = LArCVDataset(file_keys=self._file_list, schema=params.schema, dtype="float32")
         #print("File list:",self._file_list)
         self._set_events_per_file()  # Get number of events per file + file indices
 
@@ -265,7 +265,7 @@ class ShowerDataset(Dataset):
 
     def __getitem__(self, idx):
 
-        #file_idx, event_local_idx = self._decode_idx(idx)  # Decode the global index into file and event indices
+        file_idx, event_local_idx = self._decode_idx(idx)  # Decode the global index into file and event indices
         
         #print(f"Loading file: {h5_file_name}, File index: {file_idx}, Event local index: {event_local_idx}")  # Debugging line to check which file and event is being loaded
         #print(f"Event global index: {idx}")  # Debugging line to check global index being loaded
@@ -321,13 +321,24 @@ class ShowerDataset(Dataset):
         driver = Driver(cfg)
         data = driver.process()'''
         initial_time = time.time()
-        data = self._larcv_dataset[idx] # if just using idx, need to make sure idx is deterministics -- added sorted() to glob.glob of file dir
-        post_access_data_time = time.time()
+        h5_file_name = self._file_list[file_idx]
+        with h5py.File(h5_file_name, 'r') as h5_file:
+            '''data = self._larcv_dataset[idx]''' # if just using idx, need to make sure idx is deterministics -- added sorted() to glob.glob of file dir
+            post_access_data_time = time.time()
+            true_KE_initial = float(h5_file['ke_initial'][event_local_idx])  # Access the true KE initial for the event
+
+            # Get start and end voxels
+            voxels_flat = h5_file['voxels_flat']  # Access the flat voxel array
+            voxels_start = int(h5_file['voxels_offsets'][event_local_idx])
+            voxels_end = int(h5_file['voxels_offsets'][event_local_idx + 1])
+            event_voxels = voxels_flat[voxels_start:voxels_end]  # Get the voxel array for the event
+            positions_cm = np.array(event_voxels[:, :3])  # Get the positions in cm
+            energy_per_voxel = np.array(event_voxels[:, 3])  # Get the energy per voxel
         #print(len(self._larcv_dataset))  # Debugging line to check total number of events in dataset
         #print(f"Loaded event {idx} from file {self._file_list[file_idx]} with event file index {event_local_idx}")  # Debugging line to confirm event loading
 
         # Assume one event loaded at a time
-        particles = data['particles']
+        ''''particles = data['particles']
         true_KE_initial = float(particles[0].p)
 
         # Get positions and energies for each filled voxel:
@@ -335,7 +346,7 @@ class ShowerDataset(Dataset):
         energy_per_voxel = np.array([i for i in energy_per_voxel])
         positions = data['input_data'].coords
         meta = data['meta']
-        positions_cm = np.array(meta.to_cm(positions, center=True))
+        positions_cm = np.array(meta.to_cm(positions, center=True))'''
         pre_augment_time=time.time()
 
         # Same for train/validation/test now
@@ -381,7 +392,7 @@ class ShowerDataset(Dataset):
         #print("Rotation matrix:", rot_mat_tensor)
         #print("True KE:", true_KE_initial_tensor)
         final_time = time.time()
-        if idx % 500 == 0:
+        if event_local_idx % 50 == 0:
             print(f"[{idx}] retrieve from LArCV={post_access_data_time-initial_time:.3f}s\
                   | Extract event data={pre_augment_time-post_access_data_time:.3f}s\
                   | Augment event data={final_time-pre_augment_time:.3f}s")
@@ -673,7 +684,7 @@ class ShowerDataset(Dataset):
         elif self.mode == 'test':            
             stop_at = self._num_files_test
 
-        for file in sorted(glob.glob(self._file_dir + '*LARCV.root')): #'*.hdf5'):
+        for file in sorted(glob.glob(self._file_dir + '*LARCV2HDF5.hdf5')): #'*.hdf5'):
             self._file_list.append(file)
             if len(self._file_list) == stop_at:
                 break
@@ -690,10 +701,11 @@ class ShowerDataset(Dataset):
     def _set_events_per_file(self):
         self._events_per_file = []
         for file_name in self._file_list:
-            f = ROOT.TFile(file_name)
-            tree = f.Get('sparse3d_pcluster_tree')
-            num_events = tree.GetEntries()
-            self._events_per_file.append(num_events)
+            #f = ROOT.TFile(file_name)
+            #tree = f.Get('sparse3d_pcluster_tree')
+            ##num_events = tree.GetEntries()
+            with h5py.File(file_name, 'r') as f:
+                self._events_per_file.append(int(f.attrs['n_events']))
         self._events_per_file = np.array(self._events_per_file)
         self._event_total_by_file = np.cumsum(self._events_per_file)  # Cumulative sum to get event indices
         self._event_total_by_file = np.insert(self._event_total_by_file, 0, 0)
