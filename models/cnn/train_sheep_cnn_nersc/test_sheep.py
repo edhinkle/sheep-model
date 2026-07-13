@@ -8,6 +8,7 @@ import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
+from utils.custom_loss import WeightedMSELoss
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -127,6 +128,8 @@ class Tester():
         # set loss functions
         if self.params.loss_fn == 'MSELoss':
             self.loss_func = torch.nn.MSELoss()
+        elif self.params.loss_fn == 'WeightedMSELoss':
+            self.loss_func = WeightedMSELoss()
         elif self.params.loss_fn == 'L1Loss':
             self.loss_func = torch.nn.L1Loss()
         elif self.params.loss_fn == 'HuberLoss':

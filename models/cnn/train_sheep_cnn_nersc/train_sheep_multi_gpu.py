@@ -12,6 +12,7 @@ import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
+from utils.custom_loss import WeightedMSELoss
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -143,6 +144,8 @@ class Trainer():
         # set loss functions
         if self.params.loss_fn == 'MSELoss':
             self.loss_func = torch.nn.MSELoss()
+        elif self.params.loss_fn == 'WeightedMSELoss':
+            self.loss_func = WeightedMSELoss()
         elif self.params.loss_fn == 'L1Loss':
             self.loss_func = torch.nn.L1Loss()
         elif self.params.loss_fn == 'HuberLoss':
@@ -172,9 +175,13 @@ class Trainer():
             self.epoch = epoch
             if dist.is_initialized():
                 # shuffles data before every epoch
+                print("Setting epoch {} for train sampler and datasets...".format(epoch))
                 self.train_sampler.set_epoch(epoch)
+                print("Train sampler epoch set to {}".format(self.train_sampler.epoch))
                 self.train_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNGs
+                print("Train dataset epoch set to {}".format(self.train_data_loader.dataset._epoch))
                 self.val_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNG
+                print("Validation dataset epoch set to {}".format(self.val_data_loader.dataset._epoch))
             start = time.time()
 
             # training

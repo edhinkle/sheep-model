@@ -18,7 +18,7 @@ default: &default
   lr_start_factor: 1.0
   lr_decay_gamma: 0.975
   optimizer: 'Adam'
-  max_epochs: 25
+  max_epochs: 100
   batch_size: 256
   valid_batch_size: 256
   bn_momentum: 0.01
@@ -45,6 +45,7 @@ default: &default
         parser: meta
         sparse_event: sparse3d_pcluster
   # detector-based data augmentation
+  beam_dir: [0, -0.101, 0.995] # https://github.com/DUNE/2x2_sim/blob/d984481a8499882b5721729f4eae379aa237e124/run-genie/flux/GNuMIFlux.xml#L240-L242
   detector_active_regions: [[[-347.1055,   -215.67131,   418.1399  ],
                              [-252.8945,     81.928696,  513.3719  ]],
                             [[-347.1055,   -215.67131,   518.13995 ],
@@ -132,6 +133,11 @@ mse_lin:
   loss_fn: 'MSELoss'
   train_logE: !!bool False
 
+weighted_mse_lin:
+  <<: *default
+  loss_fn: 'WeightedMSELoss'
+  train_logE: !!bool False
+
 mse_log:
   <<: *default
   loss_fn: 'MSELoss'
@@ -167,6 +173,11 @@ test: &test # inherit configs from the alias default
 test_mse_lin:
   <<: *test
   loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+test_weighted_mse_lin:
+  <<: *test
+  loss_fn: 'WeightedMSELoss'
   train_logE: !!bool False
 
 test_mse_log:

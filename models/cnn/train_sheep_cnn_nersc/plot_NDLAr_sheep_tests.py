@@ -307,7 +307,10 @@ class TestedSheepNDLAr():
             bin_centers_true_pred = (bin_edges_true_pred[:-1] + bin_edges_true_pred[1:]) / 2
             initial_guesses_true_pred  = [np.max(hist_counts_true_pred / num_events), np.mean(res_true_pred), np.std(res_true_pred)]
             #print(f"Initial Guesses for (SHEEP - True) / True Gaussian Fit: {initial_guesses_true_pred}")
+            q3, q1 = np.percentile(res_true_pred, [75, 25])
+            iqr_value = q3 - q1
 
+            print(f"IQR Value: {iqr_value}")
             # Perform the curve fit
             #vis_true_params, vis_true_covariance = curve_fit(gaussian, bin_centers_vis_true, hist_counts_vis_true, p0=initial_guesses_vis_true)
             #true_pred_params, true_pred_covariance = curve_fit(gaussian, bin_centers_true_pred, hist_counts_true_pred/ num_events, p0=initial_guesses_true_pred)
@@ -329,46 +332,46 @@ class TestedSheepNDLAr():
 
             # --- Pred ---
             #x0_pred = [0.2, 3.0, 0.2, 3.0, 0, 0.03]
-            result_dcb_pred = differential_evolution(
-                binned_double_cb_nll,
-                bounds_list,
-                args=(bin_centers_true_pred, hist_counts_true_pred, bin_width, num_events),
-                maxiter=300,
-                popsize=20,
-                seed=42,
-                polish=True
-            )
-            dcb_params_pred = result_dcb_pred.x
+            #result_dcb_pred = differential_evolution(
+            #    binned_double_cb_nll,
+            #    bounds_list,
+            #    args=(bin_centers_true_pred, hist_counts_true_pred, bin_width, num_events),
+            #    maxiter=300,
+            #    popsize=20,
+            #    seed=42,
+            #    polish=True
+            #)
             #dcb_params_pred = result_dcb_pred.x
-            #seeds = [
-            #    [0.25, 25.0, 0.25, 25.0, 0.0, 0.05],
-            #    #[0.5, 10.0, 0.5, 10.0, 0.0, 0.08],
-            #    #[1.0, 5.0, 1.0, 5.0, 0.0, 0.10],
-            #    #[0.2, 50.0, 0.2, 50.0, 0.0, 0.03],
-            #    [0.1, 2.0, 0.1, 2.0, 0.0, 0.01],
-            #    #[0.15, 5.0, 0.15, 5.0, 0.0, 0.02],
-            #    #[0.3, 8.0, 0.3, 8.0, 0.0, 0.04],
-            #    #[0.1, 30.0, 0.1, 30.0, 0.0, 0.025],
-            #]
+            #dcb_params_pred = result_dcb_pred.x
+            seeds = [
+                #[0.25, 25.0, 0.25, 25.0, 0.0, 0.05],
+                #[0.5, 10.0, 0.5, 10.0, 0.0, 0.08],
+                #[1.0, 5.0, 1.0, 5.0, 0.0, 0.10],
+                #[0.2, 50.0, 0.2, 50.0, 0.0, 0.03],
+                #[0.1, 2.0, 0.1, 2.0, 0.0, 0.01],
+                [0.15, 5.0, 0.15, 5.0, 0.0, 0.02],
+                #[0.3, 8.0, 0.3, 8.0, 0.0, 0.04],
+                #[0.1, 30.0, 0.1, 30.0, 0.0, 0.025],
+            ]
+        
+            best_result = None
+            best_nll = np.inf
             
-            #best_result = None
-            #best_nll = np.inf
-            #
-            #for x0_pred in seeds:
-            #    result = minimize(
-            #        binned_double_cb_nll,
-            #        x0=x0_pred,
-            #        args=(bin_centers_true_pred, hist_counts_true_pred, bin_width, num_events),
-            #        method='L-BFGS-B',
-            #        bounds=bounds_dcb
-            #    )
-            #    print("Result for seed {}: success={}, nll={:.4f}".format(x0_pred, result.success, result.fun))
-            #    if result.success and result.fun < best_nll:
-            #        best_nll = result.fun
-            #        best_result = result
-            
-            #dcb_params_pred = best_result.x
-            print(f"DCB pred converged: {result_dcb_pred.success} — {result_dcb_pred.message}")
+            for x0_pred in seeds:
+                result = minimize(
+                    binned_double_cb_nll,
+                    x0=x0_pred,
+                    args=(bin_centers_true_pred, hist_counts_true_pred, bin_width, num_events),
+                    method='L-BFGS-B',
+                    bounds=bounds_dcb
+                )
+                print("Result for seed {}: success={}, nll={:.4f}".format(x0_pred, result.success, result.fun))
+                if result.success and result.fun < best_nll:
+                    best_nll = result.fun
+                    best_result = result
+        
+            dcb_params_pred = best_result.x
+            print(f"DCB pred converged: {best_result.success} — {best_result.message}")
             print(f"beta_l={dcb_params_pred[0]:.3f}, m_l={dcb_params_pred[1]:.3f}, "
                   f"beta_r={dcb_params_pred[2]:.3f}, m_r={dcb_params_pred[3]:.3f}, "
                   f"loc={dcb_params_pred[4]:.3f}, scale={dcb_params_pred[5]:.3f}")

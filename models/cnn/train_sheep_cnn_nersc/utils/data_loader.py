@@ -38,6 +38,7 @@ import glob
 def get_data_loader(params, data_location, distributed, train=True, test=False):
     """Function to get the data loader for training/validation/testing."""
     mode = 'train' if train else 'valid' if not test else 'test'
+    print("Getting data loader for mode ", mode, " with data location ", data_location)
 
     dataset = ShowerDataset(params, data_location, mode=mode)
     batch_size = int(params.local_batch_size if train else params.local_valid_batch_size if not test else params.local_test_batch_size)
@@ -53,7 +54,7 @@ def get_data_loader(params, data_location, distributed, train=True, test=False):
     #else:
     #    sampler = DistributedSampler(dataset, shuffle=False, drop_last=True) if distributed else None
     # Back to simpler sampler for now ...
-    sampler = DistributedSampler(dataset, shuffle=False, drop_last=True) if distributed else None
+    sampler = DistributedSampler(dataset, shuffle=train, drop_last=True) if distributed else None
 
 
     dataloader = DataLoader(dataset,
@@ -63,7 +64,7 @@ def get_data_loader(params, data_location, distributed, train=True, test=False):
                             sampler=sampler,
                             collate_fn=shower_collate_fn,
                             drop_last=True,
-                            persistent_workers=True,
+                            persistent_workers=False,
                             prefetch_factor=4,
                             pin_memory= torch.cuda.is_available(), # unclear whether this helps ...
                             timeout=600) # timeout to prevent hanging
@@ -200,6 +201,7 @@ class ShowerDataset(Dataset):
         self._set_events_per_file()  # Get number of events per file + file indices
 
         self._detector_active_regions = np.array(params.detector_active_regions)
+        self._beam_dir = np.array(params.beam_dir)
         self._RANDOM_SEED = int(params.random_seed)
         self._voxel_size = np.array(params.voxel_size)
         self._min_visible_energy = params.min_visible_energy  # For numerical stability in MinkowskiEngine (Minimum energy target) 
@@ -250,8 +252,22 @@ class ShowerDataset(Dataset):
             nue_start_dir_z = df['start_dir_z']
             self._nue_start_dir_x_kde = stats.gaussian_kde(nue_start_dir_x)
             self._nue_start_dir_y_kde = stats.gaussian_kde(nue_start_dir_y)
-            self._nue_start_dir_z_pareto_params = stats.pareto.fit(-nue_start_dir_z) # Flip z to fit to pareto
-            #print("Fitted KDE for nue start dir x and y, and fitted Pareto distribution for nue start dir z with parameters:", self._nue_start_dir_z_pareto_params)
+            self._nue_start_dir_z_pareto_params = stats.pareto.fit(-nue_start_dir_z) # Flip z to fit to Pareto distribution
+            #nue_ke = df['ke']
+            #nue_ke_mask_below1GeV = nue_ke < 1000.00 # different distributions above and below 1 GeV
+            #nue_start_dir_x_below1GeV = nue_start_dir_x[nue_ke_mask_below1GeV]
+            #nue_start_dir_y_below1GeV = nue_start_dir_y[nue_ke_mask_below1GeV]
+            #nue_start_dir_z_below1GeV = nue_start_dir_z[nue_ke_mask_below1GeV]
+            #nue_start_dir_x_above1GeV = nue_start_dir_x[~nue_ke_mask_below1GeV]
+            #nue_start_dir_y_above1GeV = nue_start_dir_y[~nue_ke_mask_below1GeV]
+            #nue_start_dir_z_above1GeV = nue_start_dir_z[~nue_ke_mask_below1GeV]
+            #self._nue_start_dir_x_kde_below1GeV = stats.gaussian_kde(nue_start_dir_x_below1GeV)
+            #self._nue_start_dir_y_kde_below1GeV = stats.gaussian_kde(nue_start_dir_y_below1GeV)
+            #self._nue_start_dir_z_gamma_params_below1GeV = stats.gamma.fit(-nue_start_dir_z_below1GeV) # Flip z to fit to gamma
+            #self._nue_start_dir_x_kde_above1GeV = stats.gaussian_kde(nue_start_dir_x_above1GeV)
+            #self._nue_start_dir_y_kde_above1GeV = stats.gaussian_kde(nue_start_dir_y_above1GeV)
+            #self._nue_start_dir_z_pareto_params_above1GeV = stats.pareto.fit(-nue_start_dir_z_above1GeV) # Flip z to fit to Pareto distribution
+            #print("Fitted KDE for nue start dir x and y, and fitted Generalized Half-Normal distribution for nue start dir z with parameters:", self._nue_start_dir_z_halfgennorm_params)
 
         self._fixed_augmentation_mode = False
         self._fixed_start_pos = None
@@ -428,6 +444,7 @@ class ShowerDataset(Dataset):
     def _get_deterministic_rng_per_event(self, event_id: int):
         """Get a deterministic random number generator for a given event and epoch for determinstic poses."""
         if self.mode == 'train' or self.mode == 'test':
+            #print("Using deterministic RNG for event {} in mode {} with epoch {}".format(event_id, self.mode, self._epoch))
             mixed_seed = (self._RANDOM_SEED * 1_000_0003) ^ (int(event_id) * 97) ^ (int(self._epoch) * 1_000_000 + 1337)
         elif self.mode == 'valid':
             mixed_seed = (self._RANDOM_SEED * 1_000_0003) ^ (int(event_id) * 97)
@@ -485,7 +502,7 @@ class ShowerDataset(Dataset):
                 for _ in range(5000):
                 
                     start_pos = self._sample_random_start_position(rng)  # Sample a random start position
-                    rotation_matrix = self._sample_random_rotation_matrix(rng)  # Sample a random rotation matrix
+                    rotation_matrix = self._sample_random_rotation_matrix(rng, true_KE_initial)  # Sample a random rotation matrix
                     #print("Rotation matrix:\n", rotation_matrix)  # Debugging line to check rotation matrix
                     #print("A few segment positions:", segment_positions[:5])  # Debugging line to check segment positions
                     #transformed_segments_xyz = segment_positions @ rotation_matrix.T + start_pos # Shape (N, 3) where N is the number of segments
@@ -574,7 +591,7 @@ class ShowerDataset(Dataset):
 
   
     # Method to get uniformly randomly sampled directions
-    def _sample_random_rotation_matrix(self, rng):
+    def _sample_random_rotation_matrix(self, rng, true_KE_initial=None):
         """Generate a random rotation matrix -- rng depends on train/val/test mode for reproducibility"""
 
         #print("Sampling random rotation matrix with RNG state:", rng.bit_generator.state)  # Debugging line to check RNG state when sampling rotation matrix
@@ -585,21 +602,75 @@ class ShowerDataset(Dataset):
 
         # Step 2: Get direction vector
         # nue profile direction
+        '''if self._ndlar_nue_profile == True:
+            electron_mass = 0.511  # MeV (/c^2)
+            electron_total_energy = true_KE_initial + electron_mass  # Total energy of the electron (kinetic + rest mass)
+            if true_KE_initial < 1000.00: # below 1 GeV, use gamma distribution for z
+                try: 
+                    for _ in range(5000):
+                        #print("Getting random direction ...")
+                        dir_x = self._nue_start_dir_x_kde_below1GeV.resample(size=1, seed=rng).flatten()[0]
+                        #print("Sampled dir_x from ND-LAr nue profile KDE fit:", dir_x)
+                        dir_y = self._nue_start_dir_y_kde_below1GeV.resample(size=1, seed=rng).flatten()[0]
+                        #print("Sampled dir_y from ND-LAr nue profile KDE fit:", dir_y)
+                        dir_z = stats.gamma.rvs(*self._nue_start_dir_z_gamma_params_below1GeV, size=1, random_state=rng).flatten()[0] # Don't need to flip z bc starts backwards
+                        #print("Sampled dir_z from ND-LAr nue profile half-generalized normal fit:", dir_z)
+                        dir_x = np.clip(dir_x, -1, 1)
+                        dir_y = np.clip(dir_y, -1, 1)
+                        dir_z = np.clip(dir_z, -1, 1)
+                        direction = np.array([dir_x, dir_y, dir_z])
+                        direction = direction / np.linalg.norm(direction)
+                        #print("Sampled direction from ND-LAr nue profile KDE/Pareto fit:", direction.flatten())
+
+                        # Check that direction is compatible with energy
+                        theta_e = np.arccos(direction @ self._beam_dir)  # Angle between shower direction and z-axis (beam direction -- both vectors normalized)
+                        # Constrain nu-e scattering kinematics
+                        if ((electron_total_energy * theta_e**2) < (2*electron_mass)): break
+                            #print("Sampled direction is compatible with energy. Using this direction.")
+                        else: continue
+                            #print("Sampled direction is NOT compatible with energy. Resampling ...")
+                except:
+                    print(f"Resampling timed out. Will use last sampled direction, ({direction[0]}, {direction[1]}, {direction[2]}).", flush=True)
+            else:
+                try: 
+                    for _ in range(5000):
+                        #print("Getting random direction ...")
+                        dir_x = self._nue_start_dir_x_kde_above1GeV.resample(size=1, seed=rng).flatten()[0]
+                        #print("Sampled dir_x from ND-LAr nue profile KDE fit:", dir_x)
+                        dir_y = self._nue_start_dir_y_kde_above1GeV.resample(size=1, seed=rng).flatten()[0]
+                        #print("Sampled dir_y from ND-LAr nue profile KDE fit:", dir_y)
+                        dir_z = stats.pareto.rvs(*self._nue_start_dir_z_pareto_params_above1GeV, size=1, random_state=rng).flatten()[0] # Don't need to flip z bc starts backwards
+                        #print("Sampled dir_z from ND-LAr nue profile pareto fit:", dir_z)
+                        dir_x = np.clip(dir_x, -1, 1)
+                        dir_y = np.clip(dir_y, -1, 1)
+                        dir_z = np.clip(dir_z, -1, 1)
+                        direction = np.array([dir_x, dir_y, dir_z])
+                        direction = direction / np.linalg.norm(direction)
+                        #print("Sampled direction from ND-LAr nue profile KDE/Pareto fit:", direction.flatten())
+    
+                        # Check that direction is compatible with energy
+                        theta_e = np.arccos(direction @ self._beam_dir)  # Angle between shower direction and z-axis (beam direction -- both vectors normalized)
+                        # Constrain nu-e scattering kinematics
+                        if ((electron_total_energy * theta_e**2) < (2*electron_mass)): break
+                            #print("Sampled direction is compatible with energy. Using this direction.")
+                        else: continue
+                            #print("Sampled direction is NOT compatible with energy. Resampling ...")
+                except:
+                    print(f"Resampling timed out. Will use last sampled direction, ({direction[0]}, {direction[1]}, {direction[2]}).", flush=True)'''
         if self._ndlar_nue_profile == True:
+
             #print("Getting random direction ...")
             dir_x = self._nue_start_dir_x_kde.resample(size=1, seed=rng).flatten()[0]
             #print("Sampled dir_x from ND-LAr nue profile KDE fit:", dir_x)
             dir_y = self._nue_start_dir_y_kde.resample(size=1, seed=rng).flatten()[0]
             #print("Sampled dir_y from ND-LAr nue profile KDE fit:", dir_y)
             dir_z = stats.pareto.rvs(*self._nue_start_dir_z_pareto_params, size=1, random_state=rng).flatten()[0] # Don't need to flip z bc starts backwards
-            #print("Sampled dir_z from ND-LAr nue profile Pareto fit:", dir_z)
+            #print("Sampled dir_z from ND-LAr nue profile half-generalized normal fit:", dir_z)
             dir_x = np.clip(dir_x, -1, 1)
             dir_y = np.clip(dir_y, -1, 1)
             dir_z = np.clip(dir_z, -1, 1)
             direction = np.array([dir_x, dir_y, dir_z])
             direction = direction / np.linalg.norm(direction)
-            #print("Sampled direction from ND-LAr nue profile KDE/Pareto fit:", direction.flatten())
-
         else:
             sin_theta = np.sin(theta)
             direction = np.array([
