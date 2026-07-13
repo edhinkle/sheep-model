@@ -8,6 +8,7 @@ import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
+from utils.custom_loss import WeightedMSELoss
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -77,7 +78,7 @@ class Tester():
                 raise ValueError(f"Training directory {train_dir} does not exist. Please train the model before testing.")
         self.params['experiment_dir'] = os.path.abspath(exp_dir)
         self.params['train_dir'] = os.path.abspath(train_dir)
-        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_log.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
+        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_NUElog.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
         self.params['checkpoint_path'] = os.path.join(train_dir, 'checkpoints/'+self.checkpoint_file)
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
@@ -89,7 +90,7 @@ class Tester():
         if self.world_rank == 0:
             with open(self.params['log_path'], 'w') as f:
                 writer = csv.writer(f)
-                writer.writerow(['label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
+                writer.writerow(['idx', 'label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
 
 
         self.params['global_batch_size'] = self.params.batch_size
@@ -127,6 +128,8 @@ class Tester():
         # set loss functions
         if self.params.loss_fn == 'MSELoss':
             self.loss_func = torch.nn.MSELoss()
+        elif self.params.loss_fn == 'WeightedMSELoss':
+            self.loss_func = WeightedMSELoss()
         elif self.params.loss_fn == 'L1Loss':
             self.loss_func = torch.nn.L1Loss()
         elif self.params.loss_fn == 'HuberLoss':
@@ -139,7 +142,7 @@ class Tester():
         self.restore_checkpoint(self.params.checkpoint_path)
 
         # launch testing
-        self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices = self.test()
+        self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.test()
         #print("Start positions:", self.start_positions)
         if self.train_logE == True:
             self.labels = np.exp(self.labels)
@@ -155,7 +158,7 @@ class Tester():
             if self.world_rank == 0:
                 with open(self.params['log_path'], 'a') as f:
                     writer = csv.writer(f)
-                    writer.writerow([self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
+                    writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
         #self.plot_results()
 
 
@@ -177,12 +180,13 @@ class Tester():
         oob_frac = []
         start_positions = []
         rotation_matrices = []
+        idxs = []
 
         # Initialize a progress bar
         pbar = tqdm(total=len(self.test_data_loader), position=0, leave=True)
 
         with torch.no_grad():
-            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.test_data_loader):
+            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.test_data_loader):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
                 VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
                 outputs = self.model(inputs)
@@ -193,6 +197,7 @@ class Tester():
                 oob_frac.append(OOB_frac.detach().reshape(-1))
                 start_positions.append(start_pos.detach())
                 rotation_matrices.append(rot_mat.detach())
+                idxs.append(idx.detach())
                 #print("Input type: ", type(inputs[0]))
                 #print("Start positions:", start_positions[-1])
 
@@ -218,7 +223,7 @@ class Tester():
         if self.log_to_screen:
             print("Test time: {:.2f}s".format(test_time))
 
-        return torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy()
+        return torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
 
     def plot_results(self):
 

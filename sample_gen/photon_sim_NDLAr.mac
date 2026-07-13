@@ -8,21 +8,21 @@
 # Physics changes to match with 2x2_beam.mac
 /edep/hitSeparation LArBox_lv -1 mm
 /edep/hitLength LArBox_lv 0.0001 mm
-#/process/eLoss/StepFunction 0.001 1 mm
-#/process/eLoss/StepFunctionMuHad 0.001 1 mm
+#/process/eLoss/StepFunction 0.001 0.05 mm
+#/process/eLoss/StepFunctionMuHad 0.001 0.05 mm
 /edep/db/set/neutronThreshold 0 MeV
 /edep/db/set/lengthThreshold 0 mm
 /edep/db/set/gammaThreshold 0 MeV
 /edep/update
 
 # Define the particle and its energy (uniform energy distribution).
-/gps/particle e-
+/gps/particle gamma
 /gps/ene/type Lin
 /gps/ene/gradient 0
 /gps/ene/intercept 1
 /gps/ene/min 10 MeV
 /gps/ene/max 2000 MeV
-# For 2x2, generated showers up to 2000 MeV; up to 15000 MeV for ND-LAr
+# Changed energy distribution to be smaller range for now
 
 # Set the position of the particle gun -- just emit from the origin.
 /gps/pos/type Point

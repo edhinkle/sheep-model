@@ -7,10 +7,12 @@ from xml.parsers.expat import model
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
+import torch.multiprocessing as mp
 import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
+from utils.custom_loss import WeightedMSELoss
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -84,7 +86,7 @@ class Trainer():
         if self.world_rank == 0 and self.params['resuming']==False:
             with open(self.params['log_path'], 'w') as f:
                 writer = csv.writer(f)
-                writer.writerow(['epoch', 'train_iter', 'train_loss', 'val_loss', 'train_time', 'val_time'])
+                writer.writerow(['epoch', 'train_iter', 'train_loss', 'val_loss', 'train_time', 'val_time', 'train_avg_active_pixels', 'val_avg_active_pixels'])
 
             # Set up batch norm stats logging to file
             with open(self.params['batch_stats_log_path'], 'w') as f:
@@ -96,13 +98,17 @@ class Trainer():
         self.params['global_valid_batch_size'] = self.params.valid_batch_size
         self.params['local_valid_batch_size'] = int(self.params.valid_batch_size//self.world_size)
 
+        # Switch to file_system strategy
+        # Must be called before creating any DataLoader workers
+        mp.set_sharing_strategy('file_system')
+
         # get the dataloaders
         self.train_data_loader, self.train_sampler = get_data_loader(self.params, self.params.train_path, dist.is_initialized(), train=True)
         #self.test_data_loader, self.test_sampler = get_data_loader(self.params, self.params.test_path, dist.is_initialized(), train=False)
         self.val_data_loader, _ = get_data_loader(self.params, self.params.val_path, dist.is_initialized(), train=False)
 
         # get the model
-        self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device)
+        self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device, non_blocking=True)
         # convert batch norm layers to sync batch norm for distributed training
         if dist.is_initialized():
             self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
@@ -138,6 +144,8 @@ class Trainer():
         # set loss functions
         if self.params.loss_fn == 'MSELoss':
             self.loss_func = torch.nn.MSELoss()
+        elif self.params.loss_fn == 'WeightedMSELoss':
+            self.loss_func = WeightedMSELoss()
         elif self.params.loss_fn == 'L1Loss':
             self.loss_func = torch.nn.L1Loss()
         elif self.params.loss_fn == 'HuberLoss':
@@ -167,9 +175,13 @@ class Trainer():
             self.epoch = epoch
             if dist.is_initialized():
                 # shuffles data before every epoch
+                print("Setting epoch {} for train sampler and datasets...".format(epoch))
                 self.train_sampler.set_epoch(epoch)
+                print("Train sampler epoch set to {}".format(self.train_sampler.epoch))
                 self.train_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNGs
+                print("Train dataset epoch set to {}".format(self.train_data_loader.dataset._epoch))
                 self.val_data_loader.dataset._set_epoch(epoch) # <-- added for deterministic per-sample RNG
+                print("Validation dataset epoch set to {}".format(self.val_data_loader.dataset._epoch))
             start = time.time()
 
             # training
@@ -184,6 +196,7 @@ class Trainer():
             if dist.is_initialized():
                 dist.barrier()  # <-- align all ranks following validation on one epoch
 
+            start_after_val = time.time()
             # learning rate scheduler
             self.scheduler.step()
             for param_group in self.optimizer.param_groups:
@@ -206,7 +219,7 @@ class Trainer():
                     self.save_checkpoint(self.params.checkpoint_path, is_best=is_best_loss)
                     with open(self.params['log_path'], 'a', newline='') as f:
                         writer = csv.writer(f)
-                        writer.writerow([self.epoch, self.iters, self.logs['train_loss'], self.logs['val_loss'], tr_time, val_time])
+                        writer.writerow([self.epoch, self.iters, self.logs['train_loss'], self.logs['val_loss'], tr_time, val_time, self.logs['train_avg_active_pixels'], self.logs['val_avg_active_pixels'],])
                     # Save batch norm stats to separate log file
                     with open(self.params['batch_stats_log_path'], 'a', newline='') as f:
                         writer = csv.writer(f)
@@ -219,25 +232,30 @@ class Trainer():
             # some print statements
             if self.log_to_screen:
                 print('Time taken for epoch {} is {} sec; with {}/{} in tr/val'.format(self.epoch+1, time.time()-start, tr_time, val_time))
+                print('Time taken after validation for epoch {} is {} sec'.format(self.epoch+1, time.time()-start_after_val))
                 print('Loss = {}, Val loss = {}'.format(self.logs['train_loss'], self.logs['val_loss']))
 
 
     def train_one_epoch(self):
         tr_time = 0
+        load_inputs_time = 0
+        total_train_start_time = time.time()
         self.model.train()
 
         # buffers for logs
         logs_buff = torch.zeros((1), dtype=torch.float32, device=self.device)
+        logs_buff_two = torch.zeros((1), dtype=torch.float32, device=self.device)
         self.logs['train_loss'] = logs_buff[0].view(-1)
+        self.logs['train_avg_active_pixels'] = logs_buff_two[0].view(-1)
         if self.log_to_screen:
             print("Starting epoch {} with {} batches".format(self.epoch+1, len(self.train_data_loader)))
 
-        for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.train_data_loader):
+        end_of_last_step = time.time()
+        for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.train_data_loader):
             self.iters += 1
-            data_start = time.time()
-            #print("Inputs: ", inputs)
-            inputs, targets = inputs.to(self.device), targets.to(self.device)
-
+            #print("Inputs: ", inputs.size())
+            inputs, targets = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True)
+            #print("Active pixels:",inputs.shape[0])
             tr_start = time.time()
 
             #self.model.zero_grad()
@@ -250,7 +268,8 @@ class Trainer():
             loss.backward()
             self.optimizer.step()
 
-            if i % 25 == 0:
+            # Look at memory usage
+            if i % 1 == 0:
                 # current usage (bytes)
                 a = torch.cuda.memory_allocated()
                 r = torch.cuda.memory_reserved()  # "cached" by allocator
@@ -259,20 +278,36 @@ class Trainer():
  
             # add all the minibatch losses
             #print("Training loss:", loss.detach())
-            self.logs['train_loss'] += loss.detach() 
+            self.logs['train_loss'] += loss.detach()
+            self.logs['train_avg_active_pixels'] += inputs.shape[0]
+            #print("Total active pixels:", self.logs['train_avg_active_pixels'])
 
             tr_time += time.time() - tr_start
+            load_inputs_time += tr_start - end_of_last_step
+            end_of_last_step = time.time()
 
+            #print(f"Allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB")
+            #print(f"Reserved:  {torch.cuda.memory_reserved()/1e9:.2f} GB")
+        #print("Train loss before data loader adjustment:", self.logs['train_loss'])
+        #print("Train active pixels before data loader adjustment:", self.logs['train_avg_active_pixels'])
+        print("Input loading time for epoch {}: {} sec".format(self.epoch+1, load_inputs_time))
         self.logs['train_loss'] /= len(self.train_data_loader)
+        #print("Train loss after data loader adjustment:", self.logs['train_loss'])
+        self.logs['train_avg_active_pixels'] /= len(self.train_data_loader)
+        #print("Data loader length:", len(self.train_data_loader))
 
         # reset the peak counter to measure next epoch separately
         torch.cuda.reset_max_memory_allocated()
 
-        logs_to_reduce = ['train_loss']
+        logs_to_reduce = ['train_loss', 'train_avg_active_pixels']
         if dist.is_initialized(): # reduce the logs across multiple GPUs
+            print("World size: {}, reducing logs across GPUs...".format(dist.get_world_size()))
             for key in logs_to_reduce:
                 dist.all_reduce(self.logs[key].detach())
                 self.logs[key] = float(self.logs[key]/dist.get_world_size())
+
+        tr_time_total = time.time() - total_train_start_time
+        print("Total training time for epoch {}: {} sec".format(self.epoch+1, tr_time_total))
 
         return tr_time
 
@@ -281,23 +316,28 @@ class Trainer():
         val_start = time.time()
 
         logs_buff = torch.zeros((1), dtype=torch.float32, device=self.device)
+        logs_buff_two = torch.zeros((1), dtype=torch.float32, device=self.device)
         self.logs['val_loss'] = logs_buff[0].view(-1)
+        self.logs['val_avg_active_pixels'] = logs_buff_two[0].view(-1)
         if self.log_to_screen:
             print("Starting validation with {} batches".format(len(self.val_data_loader)))
 
         with torch.no_grad():
-            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat) in enumerate(self.val_data_loader):
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
+            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.val_data_loader):
+                inputs, targets = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True)
                 outputs = self.model(inputs)
                 loss = self.loss_func(outputs, targets)
 
                 #if self.log_to_screen:
                 #    print("Val loss batch {}: {}".format(i, loss.item()))
                 self.logs['val_loss'] += loss.detach()
+                self.logs['val_avg_active_pixels'] += inputs.shape[0] 
+
 
         self.logs['val_loss'] /= len(self.val_data_loader)
+        self.logs['val_avg_active_pixels'] /= len(self.val_data_loader)
         if dist.is_initialized():
-            for key in ['val_loss']:
+            for key in ['val_loss', 'val_avg_active_pixels']:
                 dist.all_reduce(self.logs[key].detach())
                 self.logs[key] = float(self.logs[key]/dist.get_world_size())
 

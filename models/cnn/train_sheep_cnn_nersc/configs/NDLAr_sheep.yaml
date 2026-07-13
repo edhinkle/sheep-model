@@ -1,5 +1,5 @@
 default: &default
-  num_data_workers: 16
+  num_data_workers: 32
   # model
   reps: 2
   depth: 11
@@ -18,21 +18,34 @@ default: &default
   lr_start_factor: 1.0
   lr_decay_gamma: 0.975
   optimizer: 'Adam'
-  max_epochs: 5
-  batch_size: 1600
-  valid_batch_size: 500
+  max_epochs: 100
+  batch_size: 256
+  valid_batch_size: 256
   bn_momentum: 0.01
   # misc
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
   # data locations
-  train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/CONVERT2H5/TRAIN/'
-  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/CONVERT2H5/TEST/'
-  val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/CONVERT2H5/VALIDATION/'
+  train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TRAIN/'
+  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/'
+  val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/VALIDATION/'
   train_files: 800
   val_files: 100
   test_files: 100
+  # LARCV dataset parameters
+  schema: 
+    input_data:
+        parser: sparse3d
+        sparse_event: sparse3d_pcluster
+    particles:
+        parser: particle
+        particle_event: particle_pcluster
+        sparse_event: sparse3d_pcluster
+    meta:
+        parser: meta
+        sparse_event: sparse3d_pcluster
   # detector-based data augmentation
+  beam_dir: [0, -0.101, 0.995] # https://github.com/DUNE/2x2_sim/blob/d984481a8499882b5721729f4eae379aa237e124/run-genie/flux/GNuMIFlux.xml#L240-L242
   detector_active_regions: [[[-347.1055,   -215.67131,   418.1399  ],
                              [-252.8945,     81.928696,  513.3719  ]],
                             [[-347.1055,   -215.67131,   518.13995 ],
@@ -106,12 +119,23 @@ default: &default
   random_seed: 0
   voxel_size: [0.372, 0.372, 0.372]
   min_visible_energy: 2.0
-  fid_vol_cut: 2.0
+  inner_wall_fv_cut: 5.0
+  outer_wall_fv_cut: 50.0
+  ds_wall_fv_cut: 150.0
+  ndlar_fv_cut: True
+  ndlar_nue_profile: True
+  nue_profile_file: "/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/nue_properties.csv"
+
 
 # Variations on the default config for different training and evaluation scenarios
 mse_lin:
   <<: *default
   loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+weighted_mse_lin:
+  <<: *default
+  loss_fn: 'WeightedMSELoss'
   train_logE: !!bool False
 
 mse_log:
@@ -142,13 +166,18 @@ huber_log:
 # Configs for testing the trained model on the test set, with some modifications for stability and speed
 test: &test # inherit configs from the alias default
   <<: *default
-  test_batch_size: 500
+  test_batch_size: 100
   # Energy scaled to /1000 for training stability
   energy_scaled: 1000.0
 
 test_mse_lin:
   <<: *test
   loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+test_weighted_mse_lin:
+  <<: *test
+  loss_fn: 'WeightedMSELoss'
   train_logE: !!bool False
 
 test_mse_log:
