@@ -26,6 +26,10 @@
 #set -euo pipefail
 
 STEPS="all"
+ran_macro=false
+ran_edepsim=false
+ran_larcv=false
+ran_hdf5=false
  
 usage() {
     awk 'NR==1 && /^#!/ { next } /^#/ { sub(/^#/, ""); print; next } { exit }' "$0"
@@ -141,11 +145,13 @@ step_larcv_hdf5() {
     local run_hdf5=false
     if should_run "larcv"; then
         run_larcv=true
+        ran_larcv=true
     else
         LARCV_FILE="${OUTDIR}/LARCV/${LARCV_FILE}"
     fi
     if should_run "hdf5"; then
         run_hdf5=true
+        ran_hdf5=true
     else
         HDF5_FILE="${OUTDIR}/HDF5/${HDF5_FILE}"
     fi
@@ -182,23 +188,11 @@ step_larcv_hdf5() {
  
 step_organize() {
     echo "[organize] Moving outputs into ${OUTDIR}/{MACROS,EDEPSIM,LARCV,HDF5}"
- 
-    declare -A moves=(
-        ["${EDEP_SEEDED_MACRO}"]="${OUTDIR}/MACROS/${EDEP_SEEDED_MACRO}"
-        ["${EDEP_FILE}"]="${OUTDIR}/EDEPSIM/${EDEP_FILE}"
-        ["${LARCV_FILE}"]="${OUTDIR}/LARCV/${LARCV_FILE}"
-        ["${HDF5_FILE}"]="${OUTDIR}/HDF5/${HDF5_FILE}"
-    )
- 
-    for src in "${!moves[@]}"; do
-        dst="${moves[$src]}"
-        if [[ ! -f "$src" ]]; then
-            echo "[organize] WARNING: expected output '${src}' not found, skipping." >&2
-            continue
-        fi
-        rm -f "$dst"
-        mv "$src" "$dst"
-    done
+
+    $ran_macro && [[ -f "${EDEP_SEEDED_MACRO}" ]] && mv "${EDEP_SEEDED_MACRO}" "${OUTDIR}/MACROS/"
+    $ran_edepsim && [[ -f "${EDEP_FILE}" ]] && mv "${EDEP_FILE}" "${OUTDIR}/EDEPSIM/"
+    $ran_larcv && [[ -f "${LARCV_FILE}" ]] && mv "${LARCV_FILE}" "${OUTDIR}/LARCV/"
+    $ran_hdf5 && [[ -f "${HDF5_FILE}" ]] && mv "${HDF5_FILE}" "${OUTDIR}/HDF5/"
 }
 
 # --- run selected steps, in fixed order -----------------------------------
@@ -208,6 +202,7 @@ step_organize() {
 # Running assumes that all previous files were already produced and were moved to the appropriate OUTDIR subdirectory.
 if should_run "macro"; then
    step_macro
+   ran_macro=true
 else
     MACRO_FILE="${OUTDIR}/MACROS/${EDEP_SEEDED_MACRO}"
     if [[ ! -f "${MACRO_FILE}" ]]; then
@@ -218,6 +213,7 @@ fi
 
 if should_run "edepsim"; then
     step_edepsim
+    ran_edepsim=true
 else
     EDEP_FILE="${OUTDIR}/EDEPSIM/${EDEP_FILE}"
     if [[ ! -f "${EDEP_FILE}" ]]; then

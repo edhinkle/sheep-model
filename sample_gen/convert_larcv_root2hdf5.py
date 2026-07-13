@@ -18,6 +18,7 @@ from spine.io.dataset.larcv import LArCVDataset
 def init_hdf5_shard(output_file: str, chunk_voxels: int = 65536):
     with h5py.File(output_file, "w", libver="latest") as f:
         f.create_dataset("ke_initial", (0,), dtype=np.float32, maxshape=(None,))
+        f.create_dataset("start_points", (0, 3), dtype=np.float32, maxshape=(None, 3))
         f.create_dataset(
             "voxels_flat",
             shape=(0, 4),
@@ -36,13 +37,14 @@ def init_hdf5_shard(output_file: str, chunk_voxels: int = 65536):
         f.attrs["n_events"] = 0
 
 
-def update_hdf5_shard(output_file: str, ke_batch: np.ndarray, voxels_batch: list):
+def update_hdf5_shard(output_file: str, ke_batch: np.ndarray, start_points_batch: np.ndarray, voxels_batch: list):
     """
     Append a batch of events to an existing HDF5 shard.
 
     Parameters
     ----------
     ke_batch    : float32 (batch_size,)       — KE per event
+    start_points_batch: float32 (batch_size, 3) — start points per event
     voxels_batch: list of float32 (N_i, 4)   — voxel arrays per event
     """
     if len(ke_batch) == 0:
@@ -55,6 +57,11 @@ def update_hdf5_shard(output_file: str, ke_batch: np.ndarray, voxels_batch: list
         n_existing = len(f["ke_initial"])
         f["ke_initial"].resize((n_existing + len(ke_batch),))
         f["ke_initial"][n_existing:] = ke_batch
+
+        # ── start_points ──────────────────────────────────────────────────────
+        n_start_existing = len(f["start_points"])
+        f["start_points"].resize((n_start_existing + len(start_points_batch), 3))
+        f["start_points"][n_start_existing:] = start_points_batch
 
         # ── voxels_flat ───────────────────────────────────────────────────────
         n_vox_existing = f["voxels_flat"].shape[0]
@@ -106,12 +113,28 @@ def convert(
     init_hdf5_shard(output_file, chunk_voxels=chunk_voxels)
 
     ke_accum     = []
+    start_points_accum = []
     voxels_accum = []
 
     for i in tqdm(range(n)):
         data = ds[i]
 
         ke = float(data['particles'][0].p)
+
+        if data['particles'][0].pdg_code == 22:
+            original_particle_id = data['particles'][0].id
+            # Find the first child of the photon (if any)
+            child_particles = [p for p in data['particles'] if p.parent_id == original_particle_id]
+            child_particles = child_particles[1:]  # Skip the photon itself
+            if len(child_particles) < 1:
+                print(f"Warning: Photon with ID {original_particle_id} has no children. Using photon's start position.")
+                start_point = np.asarray([data['particles'][0].x, data['particles'][0].y, data['particles'][0].z])
+            else:
+                first_child_idx = np.argmin([p.t for p in child_particles])  # Skip the photon itself
+                start_point = np.asarray(data['meta'].to_cm(child_particles[first_child_idx].position, center=False), dtype=np.float32)
+                print("Start point for photon event (ID {}): {}".format(original_particle_id, start_point))
+        else:
+            start_point = np.asarray([data['particles'][0].x, data['particles'][0].y, data['particles'][0].z])
 
         energy_per_voxel = np.asarray(
             data['input_data'].features, dtype=np.float32
@@ -125,18 +148,21 @@ def convert(
         voxels = np.concatenate([positions_cm, energy_per_voxel], axis=1)
 
         ke_accum.append(ke)
+        start_points_accum.append(start_point)
         voxels_accum.append(voxels)
 
         if len(ke_accum) >= write_every or i == n - 1:
             update_hdf5_shard(
                 output_file,
                 np.array(ke_accum, dtype=np.float32),
+                np.array(start_points_accum, dtype=np.float32),
                 voxels_accum
             )
             ke_accum     = []
+            start_points_accum = []
             voxels_accum = []
 
-    print(f"\nDone. {len(root_file)} HDF5 files written to {output_file}/")
+    print(f"\nDone. Events written to {output_file}/")
 
 
 if __name__ == "__main__":

@@ -10,9 +10,9 @@ SLURM_NODEID = int(os.environ['SLURM_NODEID'])
 SLURM_LOCALID = int(os.environ['SLURM_LOCALID']) # the local task ID on the node
 GLOBAL_TASK_ID = SLURM_NODEID * SLURM_NTASKS_PER_NODE + SLURM_LOCALID
 
-nfiles = 168
+nfiles = 334
 nevents = 50
-steps="hdf5,organize"
+steps="all"
 
 
 def main():
@@ -23,7 +23,8 @@ def main():
     end_idx = start_idx + files_per_task
 
     for idx in range(start_idx, end_idx):
-        os.system(f'./run_make_electron_sample.sh electron_NDLAr_10MeVto15GeV_1008TEST {nevents} {idx} {steps}')
+        #os.system(f'./run_make_electron_sample.sh electron_NDLAr_10MeVto15GeV_1008TEST {nevents} {idx} {steps}')
+        os.system(f'./run_make_photon_sample.sh photon_2x2_10MeVto2GeV_100k {nevents} {idx} {steps}')
 
 
 if __name__ == '__main__':
