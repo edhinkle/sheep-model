@@ -63,6 +63,8 @@ class Trainer():
         else:
             self.device = torch.device('cpu')
         self.params = params
+        self.log_train_preds = params.log_train_preds
+        self.log_val_preds = params.log_val_preds
         print("running on rank {} with world size {}".format(self.world_rank, self.world_size))
 
 
@@ -76,6 +78,8 @@ class Trainer():
         self.params['checkpoint_path'] = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
         self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_train_log.csv'.format(self.run_num, self.config))
         self.params['batch_stats_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_batch_stats_log.csv'.format(self.run_num, self.config))
+        self.params['train_pred_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_epoch{}_train_pred_log.csv'.format(self.run_num, self.config, self.epoch))
+        self.params['val_pred_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_epoch{}_val_pred_log.csv'.format(self.run_num, self.config, self.epoch))
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
     def launch(self):
@@ -92,6 +96,18 @@ class Trainer():
             with open(self.params['batch_stats_log_path'], 'w') as f:
                 writer = csv.writer(f)
                 writer.writerow(['epoch', 'layer_name', 'global_batch_mean', 'global_batch_var', 'running_mean', 'running_var', 'momentum'])
+
+            # Set up train prediction logging to file
+            if self.log_train_preds == True:
+                with open(self.params['train_pred_log_path'], 'w') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['idx', 'label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
+            
+            # Set up validation prediction logging to file
+            if self.log_val_preds == True:
+                with open(self.params['val_pred_log_path'], 'w') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['idx', 'label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
 
         self.params['global_batch_size'] = self.params.batch_size
         self.params['local_batch_size'] = int(self.params.batch_size//self.world_size)
@@ -187,16 +203,58 @@ class Trainer():
             start = time.time()
 
             # training
-            tr_time  = self.train_one_epoch()
+            if self.log_train_preds == True:
+                tr_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.train_one_epoch()
+                #print("Start positions:", self.start_positions)
+                if self.train_logE == True:
+                    self.labels = np.exp(self.labels)
+                    self.predictions = np.exp(self.predictions)
+                else:
+                    self.labels = self.labels*self.params.energy_scaled
+                    self.predictions = self.predictions*self.params.energy_scaled
+            else:
+                tr_time  = self.train_one_epoch()
 
             if dist.is_initialized():
                 dist.barrier()  # <-- align all ranks following training on one epoch
 
+            if self.log_train_preds == True:
+                for i in range(len(self.labels)):
+                    if self.world_rank == 0:
+                        with open(self.params['train_pred_log_path'], 'a') as f:
+                            writer = csv.writer(f)
+                            writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
+            
+                if dist.is_initialized():
+                    dist.barrier()  # <-- align all ranks following training on one epoch
+
+
             # validation
-            val_time = self.val_one_epoch()
+            if self.log_val_preds == True:
+                val_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.val_one_epoch()
+                #print("Start positions:", self.start_positions)
+                if self.train_logE == True:
+                    self.labels = np.exp(self.labels)
+                    self.predictions = np.exp(self.predictions)
+                else:
+                    self.labels = self.labels*self.params.energy_scaled
+                    self.predictions = self.predictions*self.params.energy_scaled
+            else:
+                val_time = self.val_one_epoch()
 
             if dist.is_initialized():
                 dist.barrier()  # <-- align all ranks following validation on one epoch
+
+            if self.log_val_preds == True:
+                for i in range(len(self.labels)):
+                    if self.world_rank == 0:
+                        with open(self.params['val_pred_log_path'], 'a') as f:
+                            writer = csv.writer(f)
+                            writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
+            
+                if dist.is_initialized():
+                    dist.barrier()  # <-- align all ranks following training on one epoch
+
 
             start_after_val = time.time()
             # learning rate scheduler
@@ -252,6 +310,17 @@ class Trainer():
         if self.log_to_screen:
             print("Starting epoch {} with {} batches".format(self.epoch+1, len(self.train_data_loader)))
 
+        if self.log_train_preds == True:
+            labels = []
+            preds = []
+            visible_energy = []
+            ve_frac = []
+            mg_frac = []
+            oob_frac = []
+            start_positions = []
+            rotation_matrices = []
+            idxs = []
+
         end_of_last_step = time.time()
         for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.train_data_loader):
             self.iters += 1
@@ -264,6 +333,19 @@ class Trainer():
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
             print(f"rank {self.world_rank} batch {i} outputs.shape={outputs.shape}, targets.shape={targets.shape}")
+
+            if self.log_train_preds == True:
+                VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
+                outputs = self.model(inputs)
+                labels.append(targets.detach().reshape(-1))
+                preds.append(outputs.detach().reshape(-1))
+                ve_frac.append(VE_frac.detach().reshape(-1))
+                mg_frac.append(MG_frac.detach().reshape(-1))
+                oob_frac.append(OOB_frac.detach().reshape(-1))
+                start_positions.append(start_pos.detach())
+                rotation_matrices.append(rot_mat.detach())
+                idxs.append(idx.detach())
+
 
             loss = self.loss_func(outputs, targets)
             #if self.log_to_screen:
@@ -312,7 +394,10 @@ class Trainer():
         tr_time_total = time.time() - total_train_start_time
         print("Total training time for epoch {}: {} sec".format(self.epoch+1, tr_time_total))
 
-        return tr_time
+        if self.log_train_preds == True:
+            return tr_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
+        else:
+            return tr_time
 
     def val_one_epoch(self):
         self.model.eval()
@@ -324,6 +409,17 @@ class Trainer():
         self.logs['val_avg_active_pixels'] = logs_buff_two[0].view(-1)
         if self.log_to_screen:
             print("Starting validation with {} batches".format(len(self.val_data_loader)))
+
+        if self.log_val_preds == True:
+            labels = []
+            preds = []
+            visible_energy = []
+            ve_frac = []
+            mg_frac = []
+            oob_frac = []
+            start_positions = []
+            rotation_matrices = []
+            idxs = []
 
         with torch.no_grad():
             for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.val_data_loader):
@@ -337,6 +433,19 @@ class Trainer():
                 self.logs['val_avg_active_pixels'] += inputs.shape[0] 
 
 
+                if self.log_val_preds == True:
+                    VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
+                    outputs = self.model(inputs)
+                    labels.append(targets.detach().reshape(-1))
+                    preds.append(outputs.detach().reshape(-1))
+                    ve_frac.append(VE_frac.detach().reshape(-1))
+                    mg_frac.append(MG_frac.detach().reshape(-1))
+                    oob_frac.append(OOB_frac.detach().reshape(-1))
+                    start_positions.append(start_pos.detach())
+                    rotation_matrices.append(rot_mat.detach())
+                    idxs.append(idx.detach())
+
+
         self.logs['val_loss'] /= len(self.val_data_loader)
         self.logs['val_avg_active_pixels'] /= len(self.val_data_loader)
         print("Length of validation data loader:", len(self.val_data_loader))
@@ -347,7 +456,10 @@ class Trainer():
 
         val_time = time.time() - val_start
 
-        return val_time
+        if self.log_val_preds == True:
+            return val_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
+        else:
+            return val_time
 
     def save_checkpoint(self, checkpoint_path, is_best=False, model=None):
         if not model:

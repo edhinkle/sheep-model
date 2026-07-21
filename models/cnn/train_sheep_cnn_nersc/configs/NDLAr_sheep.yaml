@@ -120,6 +120,9 @@ default: &default
   particle_start_in_fv: !!bool False
   energy_threshold: 0.200 # MeV
   set_energy_threshold: !!bool True
+  #log train and val predictions
+  log_train_preds: !!bool False
+  log_val_preds: !!bool False
 
 # Variations on the default config for different training and evaluation scenarios
 mse_lin:

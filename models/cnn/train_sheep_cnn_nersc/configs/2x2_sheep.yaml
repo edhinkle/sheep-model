@@ -18,7 +18,7 @@ default: &default
   lr_start_factor: 1.0
   lr_decay_gamma: 0.975
   optimizer: 'Adam'
-  max_epochs: 50
+  max_epochs: 2
   batch_size: 3200
   valid_batch_size: 1000
   bn_momentum: 0.01
@@ -58,6 +58,9 @@ default: &default
   particle_start_in_fv: !!bool True
   energy_threshold: 0.200 # MeV
   set_energy_threshold: !!bool False
+  #log train and val predictions
+  log_train_preds: !!bool True
+  log_val_preds: !!bool True
 
 
 # Variations on the default config for different training and evaluation scenarios
