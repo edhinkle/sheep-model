@@ -18,8 +18,8 @@ import csv
 import sys
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/spine/src/')
 import spine
-from spine.io.dataset.larcv import LArCVDataset
-from spine.io.sample import RandomSequenceBatchSampler, DistributedProxySampler
+#from spine.io.dataset.larcv import LArCVDataset
+#from spine.io.sample import RandomSequenceBatchSampler, DistributedProxySampler
 import yaml
 import ROOT
 
@@ -200,11 +200,20 @@ class ShowerDataset(Dataset):
         #print("File list:",self._file_list)
         self._set_events_per_file()  # Get number of events per file + file indices
 
+        # Photons vs. electrons
+        self._photons_in_sample = params.photons_in_sample
+        self._electrons_in_sample = params.electrons_in_sample
+        self._event_vertex_in_fv = params.event_vertex_in_fv
+        self._particle_start_in_fv = params.particle_start_in_fv
+
         self._detector_active_regions = np.array(params.detector_active_regions)
         self._beam_dir = np.array(params.beam_dir)
         self._RANDOM_SEED = int(params.random_seed)
         self._voxel_size = np.array(params.voxel_size)
         self._min_visible_energy = params.min_visible_energy  # For numerical stability in MinkowskiEngine (Minimum energy target) 
+        self._set_energy_threshold = params.set_energy_threshold  # Only look at deposits above threshold?
+        self._energy_threshold = params.energy_threshold  # Only look at deposits above threshold
+        
         self._inner_wall_fv_cut = params.inner_wall_fv_cut  # Fiducial volume cut in cm on inner walls (modules)
         self._ndlar_fv_cut = params.ndlar_fv_cut # Turn on extra FV cut on start position for ND-LAr? 
         self._outer_wall_fv_cut = params.outer_wall_fv_cut # Extra FV cut -- outer walls of full detector
@@ -286,62 +295,15 @@ class ShowerDataset(Dataset):
         #print(f"Loading file: {h5_file_name}, File index: {file_idx}, Event local index: {event_local_idx}")  # Debugging line to check which file and event is being loaded
         #print(f"Event global index: {idx}")  # Debugging line to check global index being loaded
 
-        '''with h5py.File(h5_file_name, 'r') as h5_file:  # Open the HDF5 file
-            file_events = h5_file['events']  # Access the events dataset
-            file_segments = h5_file['segments']
-            file_segments_refs = h5_file['segments_ref']
-
-            event = file_events[event_local_idx]
-            event_id = int(event['event_id'])
-            segments = file_segments[file_segments_refs[event_id]]
-
-            true_KE_initial = float(np.sqrt(np.sum(np.square(event['pxyz_start']))))
-
-            # Same for train/validation/test now
-            rng = self._get_deterministic_rng_per_event(idx)
-            #print(f"Event ID: {idx}, RNG state: {rng.bit_generator.state}")  # Debugging line to check RNG state for each event
-            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(rng, segments, true_KE_initial, self._min_visible_energy)'''
-
-        '''# Accessing LARCV files using SPINE parsers
-        DATA_PATH = self._file_list[file_idx]
-        ENTRY = "["+str(event_local_idx)+"]" # Change this to access different entries in the LARCV file.
-        NUM_WORKERS = 0
-
-        cfg = """
-            base:
-              verbosity: warning
-            io:
-              loader:
-                batch_size: 1
-                shuffle: False
-                num_workers: NUM_WORKERS
-                collate_fn: all
-                dataset:
-                  name: larcv
-                  file_keys: DATA_PATH
-                  entry_list: ENTRY
-                  schema:
-                    input_data:
-                      parser: sparse3d
-                      sparse_event: sparse3d_pcluster
-                    particles:
-                      parser: particle
-                      particle_event: particle_pcluster
-                      sparse_event: sparse3d_pcluster
-                    meta:
-                      parser: meta
-                      sparse_event: sparse3d_pcluster
-            """.replace('DATA_PATH', DATA_PATH).replace('ENTRY', str(ENTRY)).replace('NUM_WORKERS', str(NUM_WORKERS))
-            
-        cfg = yaml.safe_load(cfg)
-        driver = Driver(cfg)
-        data = driver.process()'''
         initial_time = time.time()
         h5_file_name = self._file_list[file_idx]
         with h5py.File(h5_file_name, 'r') as h5_file:
-            '''data = self._larcv_dataset[idx]''' # if just using idx, need to make sure idx is deterministics -- added sorted() to glob.glob of file dir
             post_access_data_time = time.time()
             true_KE_initial = float(h5_file['ke_initial'][event_local_idx])  # Access the true KE initial for the event
+            try:
+                particle_start = np.array(h5_file['start_points'][event_local_idx])  # Access the start point for the event
+            except:
+                particle_start = np.array([0, 0, 0], dtype=np.float32)  # Default to origin if start point is not available
 
             # Get start and end voxels
             voxels_flat = h5_file['voxels_flat']  # Access the flat voxel array
@@ -354,15 +316,6 @@ class ShowerDataset(Dataset):
         #print(f"Loaded event {idx} from file {self._file_list[file_idx]} with event file index {event_local_idx}")  # Debugging line to confirm event loading
 
         # Assume one event loaded at a time
-        ''''particles = data['particles']
-        true_KE_initial = float(particles[0].p)
-
-        # Get positions and energies for each filled voxel:
-        energy_per_voxel = data['input_data'].features
-        energy_per_voxel = np.array([i for i in energy_per_voxel])
-        positions = data['input_data'].coords
-        meta = data['meta']
-        positions_cm = np.array(meta.to_cm(positions, center=True))'''
         pre_augment_time=time.time()
 
         # Same for train/validation/test now
@@ -370,19 +323,28 @@ class ShowerDataset(Dataset):
         #print(f"Event ID: {idx}, RNG state: {rng.bit_generator.state}")  # Debugging line to check RNG state for each event
         # Use fixed augmentation if visualization mode is enabled
         if self._fixed_augmentation_mode and self._fixed_start_pos is not None:
-            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(
-                rng, positions_cm, energy_per_voxel, true_KE_initial, self._min_visible_energy,
+            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(idx,
+                rng, positions_cm, energy_per_voxel, true_KE_initial, particle_start, self._min_visible_energy,
                 fixed_start_pos=self._fixed_start_pos, fixed_rotation_matrix=self._fixed_rotation_matrix
             )
         else:
-            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(
-                rng, positions_cm, energy_per_voxel, true_KE_initial, self._min_visible_energy
+            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(idx,
+                rng, positions_cm, energy_per_voxel, true_KE_initial, particle_start, self._min_visible_energy
             )
 
         
         # Voxelize the filtered segments SPARSELY
         coords, features = self._voxelize_sparse(vis_segs)
 
+        if self._set_energy_threshold:
+            # Apply energy threshold to features and coords
+            #print(f"Applying energy threshold of {self._energy_threshold} MeV to features. Number of voxels before thresholding: {len(coords)}")
+            energy_mask = features[:, 0] >= self._energy_threshold
+            coords = coords[energy_mask]
+            features = features[energy_mask]
+            #print(f"Applied energy threshold of {self._energy_threshold} MeV. Number of voxels after thresholding: {len(coords)}")
+
+        #final_visible_energy = np.sum(features[:, 0])  # Sum of energies in MeV
         # Convert coords, features, labels, to PyTorch tensors
         coords = torch.from_numpy(coords).contiguous()  # Keep as int32 for voxel indices
         features = torch.from_numpy(features).contiguous()  # Already float32
@@ -408,10 +370,10 @@ class ShowerDataset(Dataset):
         #print("Rotation matrix:", rot_mat_tensor)
         #print("True KE:", true_KE_initial_tensor)
         final_time = time.time()
-        if event_local_idx % 50 == 0:
-            print(f"[{idx}] retrieve from LArCV={post_access_data_time-initial_time:.3f}s\
-                  | Extract event data={pre_augment_time-post_access_data_time:.3f}s\
-                  | Augment event data={final_time-pre_augment_time:.3f}s")
+        #if event_local_idx % 50 == 0:
+        #    print(f"[{idx}] retrieve from LArCV={post_access_data_time-initial_time:.3f}s\
+        #          | Extract event data={pre_augment_time-post_access_data_time:.3f}s\
+        #          | Augment event data={final_time-pre_augment_time:.3f}s")
 
 
         return combined_data, true_KE_initial_tensor, ve_frac_tensor, mg_frac_tensor, oob_frac_tensor, start_pos_tensor, rot_mat_tensor, idx_tensor
@@ -451,7 +413,7 @@ class ShowerDataset(Dataset):
         return np.random.default_rng(np.uint64(mixed_seed & 0xFFFFFFFFFFFFFFFF))  # Ensure seed fits in uint64
 
     # Method to convert random start position and start direction to set of filtered visible depositions
-    def _get_filtered_segments(self, rng, positions, energy_per_larcv_voxel, true_KE_initial, 
+    def _get_filtered_segments(self, idx, rng, positions, energy_per_larcv_voxel, true_KE_initial, particle_start=np.array([0,0,0]),
                                min_visible_energy=5.0, fixed_start_pos=None, fixed_rotation_matrix=None):
         ''' Method to convert random start position and start direction to set of filtered visible depositions
         Inputs:
@@ -460,6 +422,7 @@ class ShowerDataset(Dataset):
             - energy_per_larcv_voxel: array of energy values for each voxel (MeV)
             - true_KE_initial: initial kinetic energy of the shower (for calculating visible energy fraction)
             - min_visible_energy: minimum visible energy required (in MeV)
+            - particle_start: the start point for the event (mostly relevant for photons bc first energy deposition may not be at event vtx)
             - fixed_start_pos: optional fixed start position for visualization (overrides random sampling if provided)
             - fixed_rotation_matrix: optional fixed rotation matrix for visualization (overrides random sampling if provided
         Outputs:
@@ -493,20 +456,36 @@ class ShowerDataset(Dataset):
             # Skip the 5000-iteration resampling loop and continue to energy fraction calculation
             # (Remove the `for _ in range(5000):` loop and just use these values)
         else:
-            max_VE_under_threshold = 0.
+            max_VE_under_threshold = 1.
             best_transformed_segments = positions
             best_in_any_volume = np.any(np.all((best_transformed_segments[:, None, :] >= self._min_bounds) &
                                (best_transformed_segments[:, None, :] <= self._max_bounds), axis=2),
                                 axis=1)
-            try:    
+            positions_to_use = positions
+            try:
+                iteration = 0    
                 for _ in range(5000):
-                
+                    iteration += 1
                     start_pos = self._sample_random_start_position(rng)  # Sample a random start position
                     rotation_matrix = self._sample_random_rotation_matrix(rng, true_KE_initial)  # Sample a random rotation matrix
                     #print("Rotation matrix:\n", rotation_matrix)  # Debugging line to check rotation matrix
                     #print("A few segment positions:", segment_positions[:5])  # Debugging line to check segment positions
                     #transformed_segments_xyz = segment_positions @ rotation_matrix.T + start_pos # Shape (N, 3) where N is the number of segments
-                    transformed_segments_xyz = np.einsum('ij, kj->ki', rotation_matrix, positions) + start_pos  # Efficient matrix multiplication and addition
+                    # TODO: Fix sampling here so that it is possible to have both event vertex and particle start in FV, or particle start not in FV, and still get visible energy fraction above threshold
+                    if self._event_vertex_in_fv == True and self._particle_start_in_fv == True:
+                        transformed_start = np.einsum('ij, j->i', rotation_matrix, particle_start) + start_pos  # Transform the particle start position
+                        if self._is_point_in_fv(transformed_start) == False:
+                            continue  # Skip this it`e`ration if the transformed start position is not in the FV
+                        else:
+                            positions_to_use = positions # don't shift positions, keep them relative to event vertex
+                    elif self._event_vertex_in_fv == True and self._particle_start_in_fv == False:
+                        positions_to_use = positions # don't shift positions, keep them relative to event vertex
+                    elif self._event_vertex_in_fv == False and self._particle_start_in_fv == True:
+                        #print("Only particle start in FV is true. Shifting start points.")
+                        positions_to_use = positions - particle_start  # Shift positions to be relative to particle start
+                    else: 
+                        raise ValueError("Both event_vertex_in_fv and particle_start_in_fv cannot be False. Please check your config file.")
+                    transformed_segments_xyz = np.einsum('ij, kj->ki', rotation_matrix, positions_to_use) + start_pos  # Efficient matrix multiplication and addition
 
                     # Check if each segment is within min or max bounds for each dimension
                     # Then, check if xyz of segment is within min and max bounds for any volume
@@ -573,8 +552,25 @@ class ShowerDataset(Dataset):
         #print("Sum of Energy Fractions:", visible_energy_fraction+module_gap_energy_fraction+out_of_det_bounds_energy_fraction)
         #
         #if visible_energy_fraction < min_visible_energy:
-        if visible_energy < 0.:
-            raise RuntimeError(f"Not enough visible energy ({visible_energy}) for event with initial KE {true_KE_initial}. Resampling and contingency failed.", flush=True)
+        if visible_energy <= 0.:
+            file_idx, event_local_idx = self._decode_idx(idx)
+            print("Positions minus positions to use:", positions - positions_to_use)
+            print('Iteration: ', iteration)
+            print("File: ", self._file_list[file_idx])
+            print("Event local index: ", event_local_idx)
+            print("True KE Initial: ", true_KE_initial)
+            print("Visible Energy: ", visible_energy)
+            print("Start position: ", start_pos)
+            print("Rotation matrix: ", rotation_matrix)
+            print("Positions to use in visible volume: ", positions_to_use[in_any_volume])
+            print("Module gap energy fraction: ", module_gap_energy_fraction)
+            print("Out of bounds energy fraction: ", out_of_det_bounds_energy_fraction)
+            print("Min bounds: ", self._min_bounds)
+            print("Max bounds: ", self._max_bounds)
+            z_mask = abs(positions_to_use[:, 2]) < 64
+            print("Positions passing z mask: ", positions_to_use[z_mask])
+        #if visible_energy <= 0.:
+        #    raise RuntimeError(f"Not enough visible energy ({visible_energy}) for event with initial KE {true_KE_initial}. Resampling and contingency failed.")
             
         visible_xyz = transformed_segments_xyz[in_any_volume]  # Get the positions of visible segments
         #print("Energy per LArCV Voxel:", energy_per_larcv_voxel[:5])
@@ -742,6 +738,28 @@ class ShowerDataset(Dataset):
         #print("Sampled start position: ", (x_start, y_start, z_start))
         return np.array([x_start, y_start, z_start])
     
+    # Method to check if point is in fiducial volume
+    def _is_point_in_fv(self, point):
+        """Check if a point is within the fiducial volume defined by detector active regions and cuts."""
+
+        # Check if point is within any of the detector active regions with inner wall cut applied
+        in_any_module_fv = np.any(np.all((point >= self._detector_active_regions[:, 0, :]+self._inner_wall_fv_cut) &
+                              (point <= self._detector_active_regions[:, 1, :]-self._inner_wall_fv_cut), axis=1))
+        
+        if self._ndlar_fv_cut == False:
+            # Only FV cut is same for all sides
+            return in_any_module_fv
+        else:
+            # Check if point is within the fiducial volume defined by the outer wall and downstream wall cuts
+            in_fv = (point[0] > self._min_xyz[0]+self._outer_wall_fv_cut) and \
+                    (point[0] < self._max_xyz[0]-self._outer_wall_fv_cut) and \
+                    (point[1] > self._min_xyz[1]+self._outer_wall_fv_cut) and \
+                    (point[1] < self._max_xyz[1]-self._outer_wall_fv_cut) and \
+                    (point[2] > self._min_xyz[2]+self._outer_wall_fv_cut) and \
+                    (point[2] < self._max_xyz[2]-self._ds_wall_fv_cut)
+            return in_any_module_fv and in_fv
+
+
     # Method to get list of files in dataset directory
     def _set_dataset_file_list(self):
         """Get list of files in dataset directory"""

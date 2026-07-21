@@ -8,7 +8,7 @@ import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
-from utils.custom_loss import WeightedMSELoss
+from utils.custom_loss import WeightedMSELoss, WeightedL1Loss
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -78,7 +78,7 @@ class Tester():
                 raise ValueError(f"Training directory {train_dir} does not exist. Please train the model before testing.")
         self.params['experiment_dir'] = os.path.abspath(exp_dir)
         self.params['train_dir'] = os.path.abspath(train_dir)
-        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_NUElog.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
+        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_NUElog_threshold.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
         self.params['checkpoint_path'] = os.path.join(train_dir, 'checkpoints/'+self.checkpoint_file)
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
@@ -132,6 +132,8 @@ class Tester():
             self.loss_func = WeightedMSELoss()
         elif self.params.loss_fn == 'L1Loss':
             self.loss_func = torch.nn.L1Loss()
+        elif self.params.loss_fn == 'WeightedL1Loss':
+            self.loss_func = WeightedL1Loss()
         elif self.params.loss_fn == 'HuberLoss':
             self.loss_func = torch.nn.HuberLoss()
 

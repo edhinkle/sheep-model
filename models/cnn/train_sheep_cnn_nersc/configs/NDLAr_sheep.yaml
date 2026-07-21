@@ -18,7 +18,7 @@ default: &default
   lr_start_factor: 1.0
   lr_decay_gamma: 0.975
   optimizer: 'Adam'
-  max_epochs: 100
+  max_epochs: 20
   batch_size: 256
   valid_batch_size: 256
   bn_momentum: 0.01
@@ -29,21 +29,9 @@ default: &default
   train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TRAIN/'
   test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/'
   val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/VALIDATION/'
-  train_files: 800
-  val_files: 100
-  test_files: 100
-  # LARCV dataset parameters
-  schema: 
-    input_data:
-        parser: sparse3d
-        sparse_event: sparse3d_pcluster
-    particles:
-        parser: particle
-        particle_event: particle_pcluster
-        sparse_event: sparse3d_pcluster
-    meta:
-        parser: meta
-        sparse_event: sparse3d_pcluster
+  train_files: 1600
+  val_files: 200
+  test_files: 200
   # detector-based data augmentation
   beam_dir: [0, -0.101, 0.995] # https://github.com/DUNE/2x2_sim/blob/d984481a8499882b5721729f4eae379aa237e124/run-genie/flux/GNuMIFlux.xml#L240-L242
   detector_active_regions: [[[-347.1055,   -215.67131,   418.1399  ],
@@ -122,10 +110,16 @@ default: &default
   inner_wall_fv_cut: 5.0
   outer_wall_fv_cut: 50.0
   ds_wall_fv_cut: 150.0
-  ndlar_fv_cut: True
-  ndlar_nue_profile: True
+  ndlar_fv_cut: !!bool True
+  ndlar_nue_profile: !!bool True
   nue_profile_file: "/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/nue_properties.csv"
-
+  # photons vs. electrons
+  photons_in_sample: !!bool False
+  electrons_in_sample: !!bool True
+  event_vertex_in_fv: !!bool True
+  particle_start_in_fv: !!bool False
+  energy_threshold: 0.200 # MeV
+  set_energy_threshold: !!bool True
 
 # Variations on the default config for different training and evaluation scenarios
 mse_lin:
@@ -146,6 +140,11 @@ mse_log:
 l1_lin:
   <<: *default
   loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+weighted_l1_lin:
+  <<: *default
+  loss_fn: 'WeightedL1Loss'
   train_logE: !!bool False
 
 l1_log:
@@ -188,6 +187,11 @@ test_mse_log:
 test_l1_lin:
   <<: *test
   loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+test_weighted_l1_lin:
+  <<: *test
+  loss_fn: 'WeightedL1Loss'
   train_logE: !!bool False
 
 test_l1_log:

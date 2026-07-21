@@ -18,8 +18,8 @@ import argparse
 import csv
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.axes import Axes
-from scipy.stats import linregress, skew, kurtosis
-from scipy.optimize import curve_fit
+from scipy.stats import linregress, skew, kurtosis, norm, crystalball, t
+from scipy.optimize import curve_fit, minimize, Bounds, differential_evolution
 from mpl_toolkits.mplot3d.axes3d import Axes
 
 
@@ -50,6 +50,11 @@ class TestedSheep():
         labels = []
         preds = []
         ve = []
+        ve_frac = []
+        mg_frac = []
+        oob_frac = []
+        start_position = []
+        rotation_matrix = []
         with open(self.csv_file, 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -57,10 +62,22 @@ class TestedSheep():
                 labels.append(float(row['label']))
                 preds.append(float(row['prediction']))
                 ve.append(float(row['visible_energy']))
+                ve_frac.append(float(row['ve_frac']))
+                mg_frac.append(float(row['mg_frac']))
+                oob_frac.append(float(row['oob_frac']))
+                start_position.append(str(row['start_position']))
+                rotation_matrix.append(str(row['rotation_matrix']))
 
         self.labels = np.array(labels)
         self.preds = np.array(preds)
         self.ve = np.array(ve)
+        self.ve_frac = np.array(ve_frac)
+        self.mg_frac = np.array(mg_frac)
+        self.oob_frac = np.array(oob_frac)
+        self.start_position = np.array([np.fromstring(s.strip('[]'), sep=' ') for s in start_position])
+        self.rotation_matrix = np.array([
+            np.fromstring(r.replace('\n', ' ').replace('[', '').replace(']', ''), sep=' ').reshape(3, 3)
+                            for r in rotation_matrix])
 
     def make_plots(self):
 
@@ -216,7 +233,11 @@ class TestedSheep():
 
             res_vis_true = (self.ve - self.labels) / self.labels
             res_true_pred = (self.preds - self.labels)/ self.labels
-            rbins = np.linspace(-10, 10, 201)
+            data_min = min(res_true_pred.min(), res_vis_true.min())
+            data_max = max(res_true_pred.max(), res_vis_true.max())
+            rbins = np.linspace(data_min, data_max, int(round((data_max - data_min), 2) * 50) + 1)
+            bin_width = rbins[1] - rbins[0]
+            #rbins = np.linspace(-10, 10, 201)
             num_events=len(res_vis_true)
 
             hist_counts_vis_true, bin_edges_vis_true = np.histogram(res_vis_true, bins=rbins, density=False)
@@ -241,7 +262,7 @@ class TestedSheep():
             ax.legend(fontsize=11)
             ax.set_xlim(-2, 2.3)
             ax.set_ylim(0, 0.28)
-            ax.set_ylabel("Fraction of Test Events / 0.1")
+            ax.set_ylabel(f"Fraction of Test Events / {bin_width:.2f}")
             ax.set_xlabel("Test Event Energy Resolution")
             ax=plt.gca()
             ax.text(0.8, 0.23, r"$\mathbf{Mean:}$"+f"{true_pred_params[1]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{true_pred_params[2]:.2f}\n"+r"$\mathbf{Skew:}$"+f"{self.pred_res_total_skew:.2f}\n"+r"$\mathbf{Kurtosis:}$"+f"{self.pred_res_total_kurtosis:.2f}", fontsize=12, verticalalignment='top', color='sienna')
@@ -253,6 +274,60 @@ class TestedSheep():
             self.pred_total_res_gauss_fit_std = true_pred_params[2]
             plt.close()
 
+            ### OOB Frac vs. MG Frac by visible energy fraction bin
+            self.missing_frac_bins = np.linspace(0, 1, 20 + 1)
+
+            fig, ax = plt.subplots(2,5, figsize=(38, 14), sharex=False, sharey=False)
+            ax = ax.flatten()
+
+            im = None
+    
+            for i in range(self.num_ve_frac_bins):
+                bin_mask = (self.ve / self.labels > self.ve_frac_bins[i]) & (self.ve / self.labels <= self.ve_frac_bins[i + 1])
+                if np.sum(bin_mask) == 0:
+                    continue
+                h = ax[i].hist2d(
+                    self.oob_frac[bin_mask],
+                    self.mg_frac[bin_mask],
+                    bins=self.missing_frac_bins,
+                    cmap='magma_r',
+                    cmin=1,
+                )
+                im = h[3]  # <-- grab the QuadMesh (image)
+                ax[i].set_xlabel('Uncontained Energy Fraction', fontsize=16)
+                ax[i].set_ylabel('Module Gap Energy Fraction', fontsize=16)
+                #ax[i].legend(loc='upper right', fontsize=16)
+                ax[i].tick_params(axis='both', which='major', labelsize=14)
+
+                frac_events = round(len(self.preds[bin_mask])/len(self.preds), 4)*100
+                ax[i].text(0.5, 0.97, f'VE Fraction: {self.ve_frac_bins[i]:.2f}-{self.ve_frac_bins[i+1]:.2f}\n{frac_events:.2f}% of Events', 
+                           transform=ax[i].transAxes, 
+                           color='rebeccapurple', 
+                           fontsize=15, 
+                           verticalalignment='top', 
+                           bbox=dict(boxstyle='round', 
+                                     facecolor='white', alpha=0.8))
+            # Add ONE shared colorbar on the right
+            cbar = fig.colorbar(im, ax=ax, orientation='vertical', fraction=0.02, pad=0.02)
+            cbar.set_label('Events', fontsize=16)
+            fig.suptitle(f'{self.version} Uncontained vs. Module Gap Missing Energy by Visible Energy Fraction Bin', size=20)
+            #fig.tight_layout()
+            output.savefig(fig)
+            plt.close()
+
+            #### OOB Frac vs. MG Frac by visible energy fraction bin
+            fig, ax = plt.subplots(figsize=(6,4))
+            h = plt.hist2d(self.labels,self.oob_frac,bins=(self.ebins,self.missing_frac_bins),cmap='magma_r',cmin=1)
+            im = h[3]
+            plt.xlabel("True Event Energy [MeV]")
+            plt.ylabel("Uncontained Energy Fraction")
+            cbar = fig.colorbar(im, ax=ax,orientation='vertical', fraction=0.02, pad=0.02)
+            cbar.set_label('Events', fontsize=12)
+            fig.suptitle(f'{self.version} Uncontained Missing Energy by True Event Energy', size=14)
+            output.savefig(fig)
+            plt.close()
+
+
 
             #### True - Predicted / True Energy (All Points) Fit to Gaussian by energy bin
             self.pred_res_gauss_fit_mean_by_ebin = []
@@ -261,10 +336,13 @@ class TestedSheep():
             self.pred_res_kurtosis_by_ebin = []
             self.num_events_by_ebin = []
             ebin_centers = 0.5 * (self.ebins[:-1] + self.ebins[1:])
-
+            data_min = min(res_true_pred.min(), res_vis_true.min())
+            data_max = max(res_true_pred.max(), res_vis_true.max())
+            rbins = np.linspace(data_min, data_max, int(round((data_max - data_min), 2) * 25) + 1)
+            bin_width = rbins[1] - rbins[0]
             fig, ax = plt.subplots(int(self.num_energy_bins/5),5, figsize=(30, int(6*(self.num_energy_bins/5))))#, sharex=True, sharey=True)
             ax = ax.flatten()
-            rbins = np.linspace(-10, 10, 201)
+            #rbins = np.linspace(-10, 10, 201)
 
             for i in range(self.num_energy_bins):
                 bin_mask = (self.labels > self.ebins[i]) & (self.labels <= self.ebins[i + 1])
@@ -295,7 +373,7 @@ class TestedSheep():
                 ax[i].set_xlim(-2, 3)
                 ax[i].set_ylim(-0, 0.28)
                 ax[i].set_xlabel('Event Energy Resolution', fontsize=16)
-                ax[i].set_ylabel('Fraction of Test Events / 0.1', fontsize=16)
+                ax[i].set_ylabel(f'Fraction of Test Events / {round(bin_width, 2)}', fontsize=16)
                 ax[i].legend(loc='upper right', fontsize=16)
                 ax[i].tick_params(axis='both', which='major', labelsize=14)
                 ax[i].text(0.63, 0.8, f"{self.ebins[i]:.0f}-{self.ebins[i+1]:.0f} MeV \n{frac_events_per_energy_bin:.2f}% of Events\nMean: {true_pred_params[1]:.2f} \nStd Dev: {true_pred_params[2]:.2f}\nSkew: {pred_res_skew:.2f}\nKurtosis: {pred_res_kurtosis:.2f}", transform=ax[i].transAxes, fontsize=14, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', color='orange', alpha=0.2))
@@ -380,6 +458,157 @@ class TestedSheep():
             self.num_events_by_ve_frac_bin = np.array(self.num_events_by_ve_frac_bin)
             plt.close()
 
+            #### Energy resolution by uncontained and module gap fraction double bins
+            self.oob_mg_frac_bins = np.linspace(0, 1, 5 + 1)
+            self.res_true_pred_energy = (self.preds - self.labels) / self.labels
+            self.res_true_vis_energy = (self.ve - self.labels) / self.labels
+
+            def plot_double_binned_resolution(residuals_pred, residuals_vis, fig_title):
+                nbins = len(self.oob_mg_frac_bins) - 1
+                fig, ax = plt.subplots(nbins, nbins, figsize=(4.5 * nbins, 4.0 * nbins), sharex=True, sharey=True)
+                if nbins == 1:
+                    ax = np.array([[ax]])
+
+                finite_pred = residuals_pred[np.isfinite(residuals_pred)]
+                finite_vis = residuals_vis[np.isfinite(residuals_vis)]
+                if finite_pred.size == 0 and finite_vis.size == 0:
+                    plt.close(fig)
+                    return None, None, None, None, None, None
+
+                finite_all = np.concatenate([finite_pred, finite_vis])
+                res_min = finite_all.min()
+                res_max = finite_all.max()
+                if np.isclose(res_min, res_max):
+                    res_min -= 0.5
+                    res_max += 0.5
+                pad = 0.05 * (res_max - res_min)
+                rbins = np.linspace(res_min - pad, res_max + pad, 61)
+                bin_width = rbins[1] - rbins[0]
+
+                mean_grid_pred = np.full((nbins, nbins), np.nan)
+                std_grid_pred = np.full((nbins, nbins), np.nan)
+                count_grid_pred = np.zeros((nbins, nbins), dtype=int)
+                mean_grid_vis = np.full((nbins, nbins), np.nan)
+                std_grid_vis = np.full((nbins, nbins), np.nan)
+                count_grid_vis = np.zeros((nbins, nbins), dtype=int)
+
+                for i_oob in range(nbins):
+                    oob_low = self.oob_mg_frac_bins[i_oob]
+                    oob_high = self.oob_mg_frac_bins[i_oob + 1]
+                    if i_oob == nbins - 1:
+                        oob_mask = (self.oob_frac >= oob_low) & (self.oob_frac <= oob_high)
+                    else:
+                        oob_mask = (self.oob_frac >= oob_low) & (self.oob_frac < oob_high)
+
+                    for j_mg in range(nbins):
+                        mg_low = self.oob_mg_frac_bins[j_mg]
+                        mg_high = self.oob_mg_frac_bins[j_mg + 1]
+                        if j_mg == nbins - 1:
+                            mg_mask = (self.mg_frac >= mg_low) & (self.mg_frac <= mg_high)
+                        else:
+                            mg_mask = (self.mg_frac >= mg_low) & (self.mg_frac < mg_high)
+
+                        bin_mask_pred = oob_mask & mg_mask & np.isfinite(residuals_pred)
+                        bin_mask_vis = oob_mask & mg_mask & np.isfinite(residuals_vis)
+                        n_events_pred = int(np.count_nonzero(bin_mask_pred))
+                        n_events_vis = int(np.count_nonzero(bin_mask_vis))
+                        count_grid_pred[i_oob, j_mg] = n_events_pred
+                        count_grid_vis[i_oob, j_mg] = n_events_vis
+
+                        if n_events_pred == 0 and n_events_vis == 0:
+                            ax[i_oob, j_mg].axis('off')
+                            continue
+
+                        res_bin_pred = residuals_pred[bin_mask_pred]
+                        res_bin_vis = residuals_vis[bin_mask_vis]
+                        total_events = len(finite_pred)
+
+                        if n_events_pred > 0:
+                            ax[i_oob, j_mg].hist(
+                                res_bin_pred,
+                                bins=rbins,
+                                weights=np.ones_like(res_bin_pred) / n_events_pred,
+                                color='sienna',
+                                alpha=0.60,
+                                edgecolor='none',
+                                label='Predicted energy',
+                            )
+                            mean_grid_pred[i_oob, j_mg] = np.mean(res_bin_pred)
+                            std_grid_pred[i_oob, j_mg] = np.std(res_bin_pred)
+
+                        if n_events_vis > 0:
+                            ax[i_oob, j_mg].hist(
+                                res_bin_vis,
+                                bins=rbins,
+                                weights=np.ones_like(res_bin_vis) / n_events_vis,
+                                color='royalblue',
+                                alpha=0.45,
+                                edgecolor='none',
+                                label='Visible energy',
+                            )
+                            mean_grid_vis[i_oob, j_mg] = np.mean(res_bin_vis)
+                            std_grid_vis[i_oob, j_mg] = np.std(res_bin_vis)
+
+                        ax[i_oob, j_mg].axvline(0, color='black', linewidth=0.8, linestyle='--', alpha=0.7)
+                        if n_events_pred > 0:
+                            ax[i_oob, j_mg].axvline(mean_grid_pred[i_oob, j_mg], color='sienna', linewidth=1.0)
+                        if n_events_vis > 0:
+                            ax[i_oob, j_mg].axvline(mean_grid_vis[i_oob, j_mg], color='royalblue', linewidth=1.0)
+
+                        frac_events_pred = 100.0 * n_events_pred / total_events
+                        frac_events_vis = 100.0 * n_events_vis / total_events
+                        text_lines = [f'OOB {oob_low:.2f}-{oob_high:.2f}', f'MG {mg_low:.2f}-{mg_high:.2f}']
+                        if n_events_pred > 0:
+                            text_lines.append(f'Pred N={n_events_pred} ({frac_events_pred:.2f}%)')
+                            text_lines.append(f'Pred mean: {mean_grid_pred[i_oob, j_mg]:.2f}')
+                            text_lines.append(f'Pred std: {std_grid_pred[i_oob, j_mg]:.2f}')
+                        if n_events_vis > 0:
+                            text_lines.append(f'Vis N={n_events_vis} ({frac_events_vis:.2f}%)')
+                            text_lines.append(f'Vis mean: {mean_grid_vis[i_oob, j_mg]:.2f}')
+                            text_lines.append(f'Vis std: {std_grid_vis[i_oob, j_mg]:.2f}')
+                        ax[i_oob, j_mg].text(
+                            0.03,
+                            0.97,
+                            '\n'.join(text_lines),
+                            transform=ax[i_oob, j_mg].transAxes,
+                            fontsize=9,
+                            verticalalignment='top',
+                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+                        )
+
+                        if i_oob == nbins - 1:
+                            ax[i_oob, j_mg].set_xlabel('Event Energy Resolution', fontsize=11)
+                        if j_mg == 0:
+                            ax[i_oob, j_mg].set_ylabel(f'Fraction / {bin_width:.2f}', fontsize=11)
+                        ax[i_oob, j_mg].tick_params(axis='both', which='major', labelsize=10)
+                        if n_events_pred > 0 or n_events_vis > 0:
+                            ax[i_oob, j_mg].legend(loc='upper right', fontsize=8)
+
+                fig.suptitle(fig_title, size=20)
+                fig.tight_layout(rect=[0, 0, 1, 0.96])
+                output.savefig(fig)
+                plt.close(fig)
+                return (
+                    mean_grid_pred,
+                    std_grid_pred,
+                    count_grid_pred,
+                    mean_grid_vis,
+                    std_grid_vis,
+                    count_grid_vis,
+                )
+
+            (
+                self.res_true_pred_energy_mean_by_oob_mg_bin,
+                self.res_true_pred_energy_std_by_oob_mg_bin,
+                self.res_true_pred_energy_num_events_by_oob_mg_bin,
+                self.res_true_vis_energy_mean_by_oob_mg_bin,
+                self.res_true_vis_energy_std_by_oob_mg_bin,
+                self.res_true_vis_energy_num_events_by_oob_mg_bin,
+            ) = plot_double_binned_resolution(
+                self.res_true_pred_energy,
+                self.res_true_vis_energy,
+                f'{self.version} Predicted Energy Resolution by Uncontained and Module Gap Fractions',
+            )
 
     def run(self):
         self.get_values_from_csv()

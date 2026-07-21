@@ -1,5 +1,5 @@
 default: &default
-  num_data_workers: 16
+  num_data_workers: 32
   # model
   reps: 2
   depth: 9
@@ -18,21 +18,22 @@ default: &default
   lr_start_factor: 1.0
   lr_decay_gamma: 0.975
   optimizer: 'Adam'
-  max_epochs: 150
-  batch_size: 3125
-  valid_batch_size: 500
+  max_epochs: 50
+  batch_size: 3200
+  valid_batch_size: 1000
   bn_momentum: 0.01
   # misc
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
   # data locations
-  train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/ELECTRON_SAMPLES/CONVERT2H5/TRAIN/'
-  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/ELECTRON_SAMPLES/CONVERT2H5/TEST/'
-  val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/ELECTRON_SAMPLES/CONVERT2H5/VALIDATION/'
-  train_files: 4000
+  train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_ELECTRON_SAMPLES/HDF5/TRAIN/'
+  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_ELECTRON_SAMPLES/HDF5/TEST/'
+  val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_ELECTRON_SAMPLES/HDF5/VALIDATION/'
+  train_files: 8000
   val_files: 1000
   test_files: 1000
   # detector-based data augmentation
+  beam_dir: [0, -0.05826087, 0.9983014] # normalized for 2x2 beam
   detector_active_regions: [[[  3.069, -62.076,   2.4620001],
                              [ 63.931,  62.076,  64.538]],
                             [[  3.069, -62.076, -64.538],
@@ -44,12 +45,30 @@ default: &default
   random_seed: 0
   voxel_size: [0.4434, 0.4434, 0.4434]
   min_visible_energy: 2.0
-  fid_vol_cut: 2.0
+  inner_wall_fv_cut: 2.0
+  outer_wall_fv_cut: 2.0
+  ds_wall_fv_cut: 3.0
+  ndlar_fv_cut: !!bool False
+  ndlar_nue_profile: !!bool False
+  nue_profile_file: "/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/nue_properties.csv"
+  # photons vs. electrons
+  photons_in_sample: !!bool True
+  electrons_in_sample: !!bool False
+  event_vertex_in_fv: !!bool False #TODO: Fix so this can be used
+  particle_start_in_fv: !!bool True
+  energy_threshold: 0.200 # MeV
+  set_energy_threshold: !!bool False
+
 
 # Variations on the default config for different training and evaluation scenarios
 mse_lin:
   <<: *default
   loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+weighted_mse_lin:
+  <<: *default
+  loss_fn: 'WeightedMSELoss'
   train_logE: !!bool False
 
 mse_log:
@@ -60,6 +79,11 @@ mse_log:
 l1_lin:
   <<: *default
   loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+weighted_l1_lin:
+  <<: *default
+  loss_fn: 'WeightedL1Loss'
   train_logE: !!bool False
 
 l1_log:
@@ -80,13 +104,18 @@ huber_log:
 # Configs for testing the trained model on the test set, with some modifications for stability and speed
 test: &test # inherit configs from the alias default
   <<: *default
-  test_batch_size: 500
+  test_batch_size: 1000
   # Energy scaled to /1000 for training stability
   energy_scaled: 1000.0
 
 test_mse_lin:
   <<: *test
   loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+test_weighted_mse_lin:
+  <<: *test
+  loss_fn: 'WeightedMSELoss'
   train_logE: !!bool False
 
 test_mse_log:
@@ -97,6 +126,11 @@ test_mse_log:
 test_l1_lin:
   <<: *test
   loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+test_weighted_l1_lin:
+  <<: *test
+  loss_fn: 'WeightedL1Loss'
   train_logE: !!bool False
 
 test_l1_log:

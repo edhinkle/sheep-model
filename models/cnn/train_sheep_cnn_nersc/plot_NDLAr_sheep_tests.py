@@ -18,7 +18,7 @@ import argparse
 import csv
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.axes import Axes
-from scipy.stats import linregress, skew, kurtosis, norm, crystalball
+from scipy.stats import linregress, skew, kurtosis, norm, crystalball, t
 from scipy.optimize import curve_fit, minimize, Bounds, differential_evolution
 from mpl_toolkits.mplot3d.axes3d import Axes
 
@@ -331,6 +331,11 @@ class TestedSheepNDLAr():
 
 
             # --- Pred ---
+            df, loc, scale = t.fit(res_true_pred)# df=3, loc=0, scale=0.02)
+            x = np.linspace(res_true_pred.min(), res_true_pred.max(), 500)
+            pdf = t.pdf(x, df, loc, scale)
+            pdf_bin_centers = t.pdf(bin_centers_true_pred, df, loc, scale)
+
             #x0_pred = [0.2, 3.0, 0.2, 3.0, 0, 0.03]
             #result_dcb_pred = differential_evolution(
             #    binned_double_cb_nll,
@@ -354,7 +359,7 @@ class TestedSheepNDLAr():
                 #[0.1, 30.0, 0.1, 30.0, 0.0, 0.025],
             ]
         
-            best_result = None
+            '''best_result = None
             best_nll = np.inf
             
             for x0_pred in seeds:
@@ -375,7 +380,7 @@ class TestedSheepNDLAr():
             print(f"beta_l={dcb_params_pred[0]:.3f}, m_l={dcb_params_pred[1]:.3f}, "
                   f"beta_r={dcb_params_pred[2]:.3f}, m_r={dcb_params_pred[3]:.3f}, "
                   f"loc={dcb_params_pred[4]:.3f}, scale={dcb_params_pred[5]:.3f}")
-
+            '''
             # --- Vis (not reflected) ---
             x0_vis = [1.0, 2.0, np.mean(res_vis_true), np.std(res_vis_true)]
             result_vis = minimize(
@@ -400,24 +405,25 @@ class TestedSheepNDLAr():
             ax_main.hist(bin_edges_vis_true[:-1], bins=bin_edges_vis_true, weights=hist_counts_vis_true/ num_events, label="(Visible - True) / True", alpha=0.5, edgecolor="none")
             #plt.plot(bin_centers_vis_true, gaussian(bin_centers_vis_true, *vis_true_params), color='blue', linestyle="--")
             ax_main.hist(bin_edges_true_pred[:-1],bins=bin_edges_true_pred, weights=hist_counts_true_pred/ num_events, label="(SHEEP - True) / True", alpha=0.5, edgecolor="none")
-            ax_main.plot(bin_centers_true_pred, bin_width * double_cb_pdf(bin_centers_true_pred, *dcb_params_pred), color='sienna', linestyle="--", linewidth=1)
+            ax_main.plot(x, bin_width * pdf, color='sienna', linestyle="--", linewidth=1)
             ax_main.plot(bin_centers_vis_true, bin_width * crystalball.pdf(bin_centers_vis_true, *cb_params_vis), color='blue', linestyle="--", linewidth=1)
             #ax.plot(bin_centers_true_pred, gaussian(bin_centers_true_pred, *true_pred_params), color='sienna', linestyle="--")
             ax_main.legend(fontsize=11)
             ax_main.set_xlim(-2, 2.3)
-            #ax_main.set_ylim(0, 0.5)
+            #ax_main.set_yscale('log')
+            #ax_main.set_ylim(1e-4, 0.5)
             ax_main.set_ylabel(f"Fraction of Test Events / {bin_width:.2f}")
             ax_main.set_xlabel("Test Event Energy Resolution")
             ax=plt.gca()
             #ax_main.text(0.8, 0.23, r"$\mathbf{Mean:}$"+f"{cb_params_pred[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_pred[3]:.2f}\n"+r"$\mathbf{Skew:}$"+f"{self.pred_res_total_skew:.2f}\n"+r"$\mathbf{Kurtosis:}$"+f"{self.pred_res_total_kurtosis:.2f}", fontsize=12, verticalalignment='top', color='sienna')
-            ax_main.text(0.8, 0.2, r"$\mathbf{Mean:}$"+f"{dcb_params_pred[4]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{dcb_params_pred[5]:.2f}\n"+r"$\mathbf{\alpha_l:}$"+f"{dcb_params_pred[0]:.2f}\n"+r"$\mathbf{n_l:}$"+f"{dcb_params_pred[1]:.2f}\n"+r"$\mathbf{\alpha_r:}$"+f"{dcb_params_pred[2]:.2f}\n"+r"$\mathbf{n_r:}$"+f"{dcb_params_pred[3]:.2f}", fontsize=12, verticalalignment='top', color='sienna')
+            ax_main.text(0.8, 0.2, r"$\mathbf{Mean:}$"+f"{loc:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{scale:.2f}\n"+r"$\mathbf{DoF:}$"+f"{df:.2f}\n", fontsize=12, verticalalignment='top', color='sienna')
             ax_main.text(0.8, 0.1, r"$\mathbf{Mean:}$"+f"{cb_params_vis[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_vis[3]:.2f}\n"+r"$\mathbf{\alpha:}$"+f"{cb_params_vis[0]:.2f}\n"+r"$\mathbf{n:}$"+f"{cb_params_vis[1]:.2f}", fontsize=12, verticalalignment='top', color='blue')
             #ax_main.text(-1.88, 0.267, f"PRELIMINARY", fontsize=18, verticalalignment='top', color='black', alpha=0.35, fontweight='bold')
             ax_main.text(-1.88, 0.267, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
 
             # --- Residual plot ---
             # Expected values from CB fits, evaluated at bin centers
-            expected_pred = bin_width * double_cb_pdf(bin_centers_true_pred, *dcb_params_pred) # note: reflected
+            expected_pred = bin_width * pdf_bin_centers#double_cb_pdf(bin_centers_true_pred, *dcb_params_pred) # note: reflected
             expected_vis  = bin_width * crystalball.pdf(bin_centers_vis_true, *cb_params_vis)
             
             observed_pred = hist_counts_true_pred / num_events
@@ -443,7 +449,7 @@ class TestedSheepNDLAr():
             ax_res.set_xlim(-2, 2.3)
 
             # --- Chi2/NDF for pred (reflected CB) ---
-            expected_pred = bin_width * double_cb_pdf(bin_centers_true_pred, *dcb_params_pred)
+            #expected_pred = bin_width * double_cb_pdf(bin_centers_true_pred, *dcb_params_pred)
             observed_pred = hist_counts_true_pred / num_events
 
             # Only use bins with enough counts
@@ -467,8 +473,8 @@ class TestedSheepNDLAr():
 
             fig.tight_layout()
             output.savefig(fig)
-            self.pred_total_res_gauss_fit_mean = dcb_params_pred[4]#true_pred_params[1]
-            self.pred_total_res_gauss_fit_std = dcb_params_pred[5]#true_pred_params[2]
+            self.pred_total_res_gauss_fit_mean = loc#dcb_params_pred[4]#true_pred_params[1]
+            self.pred_total_res_gauss_fit_std = scale#dcb_params_pred[5]#true_pred_params[2]
             plt.close()
 
             #### OOB Frac vs. MG Frac by visible energy fraction bin
@@ -682,6 +688,159 @@ class TestedSheepNDLAr():
             self.pred_res_kurtosis_by_ve_frac_bin = np.array(self.pred_res_kurtosis_by_ve_frac_bin)
             self.num_events_by_ve_frac_bin = np.array(self.num_events_by_ve_frac_bin)
             plt.close()
+
+
+            #### Energy resolution by uncontained and module gap fraction double bins
+            self.oob_mg_frac_bins = np.linspace(0, 1, 5 + 1)
+            self.res_true_pred_energy = (self.preds - self.labels) / self.labels
+            self.res_true_vis_energy = (self.ve - self.labels) / self.labels
+
+            def plot_double_binned_resolution(residuals_pred, residuals_vis, fig_title):
+                nbins = len(self.oob_mg_frac_bins) - 1
+                fig, ax = plt.subplots(nbins, nbins, figsize=(4.5 * nbins, 4.0 * nbins), sharex=True, sharey=True)
+                if nbins == 1:
+                    ax = np.array([[ax]])
+
+                finite_pred = residuals_pred[np.isfinite(residuals_pred)]
+                finite_vis = residuals_vis[np.isfinite(residuals_vis)]
+                if finite_pred.size == 0 and finite_vis.size == 0:
+                    plt.close(fig)
+                    return None, None, None, None, None, None
+
+                finite_all = np.concatenate([finite_pred, finite_vis])
+                res_min = finite_all.min()
+                res_max = finite_all.max()
+                if np.isclose(res_min, res_max):
+                    res_min -= 0.5
+                    res_max += 0.5
+                pad = 0.05 * (res_max - res_min)
+                rbins = np.linspace(res_min - pad, res_max + pad, 61)
+                bin_width = rbins[1] - rbins[0]
+
+                mean_grid_pred = np.full((nbins, nbins), np.nan)
+                std_grid_pred = np.full((nbins, nbins), np.nan)
+                count_grid_pred = np.zeros((nbins, nbins), dtype=int)
+                mean_grid_vis = np.full((nbins, nbins), np.nan)
+                std_grid_vis = np.full((nbins, nbins), np.nan)
+                count_grid_vis = np.zeros((nbins, nbins), dtype=int)
+
+                for i_oob in range(nbins):
+                    oob_low = self.oob_mg_frac_bins[i_oob]
+                    oob_high = self.oob_mg_frac_bins[i_oob + 1]
+                    if i_oob == nbins - 1:
+                        oob_mask = (self.oob_frac >= oob_low) & (self.oob_frac <= oob_high)
+                    else:
+                        oob_mask = (self.oob_frac >= oob_low) & (self.oob_frac < oob_high)
+
+                    for j_mg in range(nbins):
+                        mg_low = self.oob_mg_frac_bins[j_mg]
+                        mg_high = self.oob_mg_frac_bins[j_mg + 1]
+                        if j_mg == nbins - 1:
+                            mg_mask = (self.mg_frac >= mg_low) & (self.mg_frac <= mg_high)
+                        else:
+                            mg_mask = (self.mg_frac >= mg_low) & (self.mg_frac < mg_high)
+
+                        bin_mask_pred = oob_mask & mg_mask & np.isfinite(residuals_pred)
+                        bin_mask_vis = oob_mask & mg_mask & np.isfinite(residuals_vis)
+                        n_events_pred = int(np.count_nonzero(bin_mask_pred))
+                        n_events_vis = int(np.count_nonzero(bin_mask_vis))
+                        count_grid_pred[i_oob, j_mg] = n_events_pred
+                        count_grid_vis[i_oob, j_mg] = n_events_vis
+
+                        if n_events_pred == 0 and n_events_vis == 0:
+                            ax[i_oob, j_mg].axis('off')
+                            continue
+
+                        res_bin_pred = residuals_pred[bin_mask_pred]
+                        res_bin_vis = residuals_vis[bin_mask_vis]
+                        total_events = len(finite_pred)
+
+                        if n_events_pred > 0:
+                            ax[i_oob, j_mg].hist(
+                                res_bin_pred,
+                                bins=rbins,
+                                weights=np.ones_like(res_bin_pred) / n_events_pred,
+                                color='sienna',
+                                alpha=0.60,
+                                edgecolor='none',
+                                label='Predicted energy',
+                            )
+                            mean_grid_pred[i_oob, j_mg] = np.mean(res_bin_pred)
+                            std_grid_pred[i_oob, j_mg] = np.std(res_bin_pred)
+
+                        if n_events_vis > 0:
+                            ax[i_oob, j_mg].hist(
+                                res_bin_vis,
+                                bins=rbins,
+                                weights=np.ones_like(res_bin_vis) / n_events_vis,
+                                color='royalblue',
+                                alpha=0.45,
+                                edgecolor='none',
+                                label='Visible energy',
+                            )
+                            mean_grid_vis[i_oob, j_mg] = np.mean(res_bin_vis)
+                            std_grid_vis[i_oob, j_mg] = np.std(res_bin_vis)
+
+                        ax[i_oob, j_mg].axvline(0, color='black', linewidth=0.8, linestyle='--', alpha=0.7)
+                        if n_events_pred > 0:
+                            ax[i_oob, j_mg].axvline(mean_grid_pred[i_oob, j_mg], color='sienna', linewidth=1.0)
+                        if n_events_vis > 0:
+                            ax[i_oob, j_mg].axvline(mean_grid_vis[i_oob, j_mg], color='royalblue', linewidth=1.0)
+
+                        frac_events_pred = 100.0 * n_events_pred / total_events
+                        frac_events_vis = 100.0 * n_events_vis / total_events
+                        text_lines = [f'OOB {oob_low:.2f}-{oob_high:.2f}', f'MG {mg_low:.2f}-{mg_high:.2f}']
+                        if n_events_pred > 0:
+                            text_lines.append(f'Pred N={n_events_pred} ({frac_events_pred:.2f}%)')
+                            text_lines.append(f'Pred mean: {mean_grid_pred[i_oob, j_mg]:.2f}')
+                            text_lines.append(f'Pred std: {std_grid_pred[i_oob, j_mg]:.2f}')
+                        if n_events_vis > 0:
+                            text_lines.append(f'Vis N={n_events_vis} ({frac_events_vis:.2f}%)')
+                            text_lines.append(f'Vis mean: {mean_grid_vis[i_oob, j_mg]:.2f}')
+                            text_lines.append(f'Vis std: {std_grid_vis[i_oob, j_mg]:.2f}')
+                        ax[i_oob, j_mg].text(
+                            0.03,
+                            0.97,
+                            '\n'.join(text_lines),
+                            transform=ax[i_oob, j_mg].transAxes,
+                            fontsize=9,
+                            verticalalignment='top',
+                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+                        )
+
+                        if i_oob == nbins - 1:
+                            ax[i_oob, j_mg].set_xlabel('Event Energy Resolution', fontsize=11)
+                        if j_mg == 0:
+                            ax[i_oob, j_mg].set_ylabel(f'Fraction / {bin_width:.2f}', fontsize=11)
+                        ax[i_oob, j_mg].tick_params(axis='both', which='major', labelsize=10)
+                        if n_events_pred > 0 or n_events_vis > 0:
+                            ax[i_oob, j_mg].legend(loc='upper right', fontsize=8)
+
+                fig.suptitle(fig_title, size=20)
+                fig.tight_layout(rect=[0, 0, 1, 0.96])
+                output.savefig(fig)
+                plt.close(fig)
+                return (
+                    mean_grid_pred,
+                    std_grid_pred,
+                    count_grid_pred,
+                    mean_grid_vis,
+                    std_grid_vis,
+                    count_grid_vis,
+                )
+
+            (
+                self.res_true_pred_energy_mean_by_oob_mg_bin,
+                self.res_true_pred_energy_std_by_oob_mg_bin,
+                self.res_true_pred_energy_num_events_by_oob_mg_bin,
+                self.res_true_vis_energy_mean_by_oob_mg_bin,
+                self.res_true_vis_energy_std_by_oob_mg_bin,
+                self.res_true_vis_energy_num_events_by_oob_mg_bin,
+            ) = plot_double_binned_resolution(
+                self.res_true_pred_energy,
+                self.res_true_vis_energy,
+                f'{self.version} Predicted Energy Resolution by Uncontained and Module Gap Fractions',
+            )
 
 
     def run(self):

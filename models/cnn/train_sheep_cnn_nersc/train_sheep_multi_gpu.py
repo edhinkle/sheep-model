@@ -12,7 +12,7 @@ import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
-from utils.custom_loss import WeightedMSELoss
+from utils.custom_loss import WeightedMSELoss, WeightedL1Loss
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -148,6 +148,8 @@ class Trainer():
             self.loss_func = WeightedMSELoss()
         elif self.params.loss_fn == 'L1Loss':
             self.loss_func = torch.nn.L1Loss()
+        elif self.params.loss_fn == 'WeightedL1Loss':
+            self.loss_func = WeightedL1Loss()
         elif self.params.loss_fn == 'HuberLoss':
             self.loss_func = torch.nn.HuberLoss()
 
@@ -261,6 +263,7 @@ class Trainer():
             #self.model.zero_grad()
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
+            print(f"rank {self.world_rank} batch {i} outputs.shape={outputs.shape}, targets.shape={targets.shape}")
 
             loss = self.loss_func(outputs, targets)
             #if self.log_to_screen:
@@ -294,7 +297,7 @@ class Trainer():
         self.logs['train_loss'] /= len(self.train_data_loader)
         #print("Train loss after data loader adjustment:", self.logs['train_loss'])
         self.logs['train_avg_active_pixels'] /= len(self.train_data_loader)
-        #print("Data loader length:", len(self.train_data_loader))
+        print("Train Data loader length:", len(self.train_data_loader))
 
         # reset the peak counter to measure next epoch separately
         torch.cuda.reset_max_memory_allocated()
@@ -336,6 +339,7 @@ class Trainer():
 
         self.logs['val_loss'] /= len(self.val_data_loader)
         self.logs['val_avg_active_pixels'] /= len(self.val_data_loader)
+        print("Length of validation data loader:", len(self.val_data_loader))
         if dist.is_initialized():
             for key in ['val_loss', 'val_avg_active_pixels']:
                 dist.all_reduce(self.logs[key].detach())
