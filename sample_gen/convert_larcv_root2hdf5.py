@@ -128,13 +128,14 @@ def convert(
             child_particles = child_particles[1:]  # Skip the photon itself
             if len(child_particles) < 1:
                 print(f"Warning: Photon with ID {original_particle_id} has no children. Using photon's start position.")
-                start_point = np.asarray([data['particles'][0].x, data['particles'][0].y, data['particles'][0].z])
+                start_point = np.asarray(data['meta'].to_cm(data['particles'][0].position, center=False), dtype=np.float32)
             else:
                 first_child_idx = np.argmin([p.t for p in child_particles])  # Skip the photon itself
                 start_point = np.asarray(data['meta'].to_cm(child_particles[first_child_idx].position, center=False), dtype=np.float32)
-                print("Start point for photon event (ID {}): {}".format(original_particle_id, start_point))
+                #print("Start point for photon event (ID {}): {}".format(original_particle_id, start_point))
         else:
-            start_point = np.asarray([data['particles'][0].x, data['particles'][0].y, data['particles'][0].z])
+            start_point = np.asarray(data['meta'].to_cm(data['particles'][0].position, center=False), dtype=np.float32)
+            #print("Start point for non-photon event (PDG {}): {}".format(data['particles'][0].pdg_code, start_point))
 
         energy_per_voxel = np.asarray(
             data['input_data'].features, dtype=np.float32

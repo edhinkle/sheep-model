@@ -10,26 +10,20 @@
 #   edepsim   - run edep-sim
 #   larcv     - run edep2supera (EDEPSIM -> LARCV)
 #   hdf5      - convert LARCV -> HDF5
-#   organize  - clean up old outputs and move new outputs into OUTDIR subdirs
 #   all       - (default) run everything, in order
 #
 # Examples:
 #   make_edep_sim_photon_sample.sh ... -s all
 #   make_edep_sim_photon_sample.sh ... -s macro,edepsim          # stop after edep-sim
 #   make_edep_sim_photon_sample.sh ... -s larcv                  # only the edep2supera step
-#   make_edep_sim_photon_sample.sh ... -s hdf5,organize          # resume from LARCV->HDF5
+#   make_edep_sim_photon_sample.sh ... -s hdf5                   # resume from LARCV->HDF5
 #
-# Steps run in a fixed order (macro -> edepsim -> larcv -> hdf5 -> organize)
-# regardless of the order you list them in -s. Organize is always run at the end, even if not requested, 
-# to ensure outputs are in the right place for next steps.
+# Steps run in a fixed order (macro -> edepsim -> larcv -> hdf5)
+# regardless of the order you list them in -s. 
 
 #set -euo pipefail
 
 STEPS="all"
-ran_macro=false
-ran_edepsim=false
-ran_larcv=false
-ran_hdf5=false
  
 usage() {
     awk 'NR==1 && /^#!/ { next } /^#/ { sub(/^#/, ""); print; next } { exit }' "$0"
@@ -64,7 +58,7 @@ done
 # --- step selection -------------------------------------------------------
  
 if [[ "$STEPS" == "all" ]]; then
-    STEPS="macro,edepsim,larcv,hdf5,organize"
+    STEPS="macro,edepsim,larcv,hdf5"
 fi
  
 should_run() {
@@ -73,12 +67,33 @@ should_run() {
 
 # --- derived filenames -----------------------------------------------------
  
-rndSEED=$(( 1000 + FILE_INDEX ))
-baseFileName=${EDEP_FILENAME}.${rndSEED}
+rndSEED=$FILE_INDEX
+FILE_SEED=$(printf "%07d" "$rndSEED")
+baseFileName=${EDEP_FILENAME}.${FILE_SEED}
 EDEP_FILE=${baseFileName}.EDEPSIM.root
-EDEP_SEEDED_MACRO=${EDEP_MACRO}_${rndSEED}.mac
+EDEP_SEEDED_MACRO=${EDEP_MACRO}_${FILE_SEED}.mac
 LARCV_FILE=${baseFileName}.LARCV.root
 HDF5_FILE=${baseFileName}.LARCV2HDF5.hdf5
+
+if [[ $rndSeed -eq 0 ]]; then
+    echo "Random seed is 0, which is not allowed. Setting random seed to 10000000."
+    rndSEED=10000000
+fi
+
+LOCAL_MACRO="${EDEP_SEEDED_MACRO}"
+ORG_MACRO="${OUTDIR}/MACROS/${EDEP_SEEDED_MACRO}"
+ORG_EDEPSIM="${OUTDIR}/EDEPSIM/${EDEP_FILE}"
+ORG_LARCV="${OUTDIR}/LARCV/${LARCV_FILE}"
+ORG_HDF5="${OUTDIR}/HDF5/${HDF5_FILE}"
+
+if [[ -f "${ORG_HDF5}" ]]; then
+    echo "[skip] Final output already exists: ${ORG_HDF5}"
+    exit 0
+fi
+
+has_file() {
+    [[ -f "$1" ]]
+}
  
 if [[ ! -d "${OUTDIR}/MACROS" ]]; then
     mkdir -p "${OUTDIR}/MACROS"
@@ -101,20 +116,33 @@ cd "${OUTDIR}"
 # --- step: macro -------------------------------------------------------
  
 step_macro() {
+
+    if has_file "${ORG_MACRO}"; then
+        echo "[skip] Macro already exists for ${FILE_SEED}"
+        return 0
+    fi
+
     echo "[macro] Building seeded macro: ${EDEP_SEEDED_MACRO} (seed=${rndSEED})"
  
     # Add random seed to macro file
     sed "1i /edep/random/randomSeed ${rndSEED}" "${INDIR}/${EDEP_MACRO}.mac" > "${EDEP_SEEDED_MACRO}"
  
+    mv "${EDEP_SEEDED_MACRO}" "${ORG_MACRO}"
+
 }
 
 # --- step: edepsim -------------------------------------------------------
  
 step_edepsim() {
+    if has_file "${ORG_EDEPSIM}"; then
+        echo "[skip] EDEPSIM already exists for ${FILE_SEED}"
+        return 0
+    fi
+
     echo "[edepsim] Generating edep-sim sample with ${NEVENTS} events -> ${EDEP_FILE} (seed=${rndSEED})"
  
-    if [[ ! -f "${EDEP_SEEDED_MACRO}" ]]; then
-        echo "[edepsim] ERROR: ${EDEP_SEEDED_MACRO} not found. Run the 'macro' step first (or -s all)." >&2
+    if [[ ! -f "${ORG_MACRO}" ]]; then
+        echo "[edepsim] ERROR: ${ORG_MACRO} not found. Run the 'macro' step first (or -s all)." >&2
         exit 1
     fi
  
@@ -127,8 +155,10 @@ edep-sim \
     -g ${INDIR}/${GEOMETRY} \
     -o ${EDEP_FILE} \
     -e ${NEVENTS} \
-    ${EDEP_SEEDED_MACRO}
+    ${ORG_MACRO}
 EOF1
+
+    mv "${EDEP_FILE}" "${ORG_EDEPSIM}"
 }
 
 # --- larcv / hdf5 (edep2supera + LARCV -> HDF5, single container launch) --
@@ -139,56 +169,42 @@ EOF1
 step_larcv_hdf5() {
     local run_larcv=false
     local run_hdf5=false
-    if should_run "larcv"; then
+
+    if should_run "larcv" && [[ ! -f "${ORG_LARCV}" ]]; then
         run_larcv=true
-        ran_larcv=true
-    else
-        LARCV_FILE="${OUTDIR}/LARCV/${LARCV_FILE}"
     fi
-    if should_run "hdf5"; then
+
+    if should_run "hdf5" && [[ ! -f "${ORG_HDF5}" ]]; then
         run_hdf5=true
-        ran_hdf5=true
-    else
-        HDF5_FILE="${OUTDIR}/HDF5/${HDF5_FILE}"
     fi
  
     $run_larcv || $run_hdf5 || return 0
  
-    if $run_larcv && [[ ! -f "${EDEP_FILE}" ]]; then
-        echo "[larcv] ERROR: ${EDEP_FILE} not found. Run the 'edepsim' step first (or -s all)." >&2
-        exit 1
+    if $run_larcv && ! has_file "${ORG_EDEPSIM}"; then
+        step_edepsim
     fi
  
     # hdf5 needs LARCV_FILE either already on disk, or about to be produced
     # by larcv in this same invocation.
-    if $run_hdf5 && ! $run_larcv && [[ ! -f "${LARCV_FILE}" ]]; then
-        echo "[hdf5] ERROR: ${LARCV_FILE} not found. Run the 'larcv' step first (or -s all)." >&2
+    if $run_hdf5 && ! $run_larcv && ! has_file "${ORG_LARCV}"; then
+        echo "[hdf5] ERROR: ${ORG_LARCV} not found. Run the 'larcv' step first (or -s all)." >&2
         exit 1
     fi
  
     local cmds=""
     if $run_larcv; then
         echo "[larcv] Converting edep-sim -> LARCV (${LARCV_FILE})"
-        cmds+="python3 ${INDIR}/edep2supera/bin/run_edep2supera.py -c ${INDIR}/${EDEP2SUPERA_YAML} -o ${LARCV_FILE} ${EDEP_FILE}"$'\n'
+        cmds+="python3 ${INDIR}/edep2supera/bin/run_edep2supera.py -c ${INDIR}/${EDEP2SUPERA_YAML} -o ${LARCV_FILE} ${ORG_EDEPSIM}"$'\n'
+        cmds+="mv ${LARCV_FILE} ${ORG_LARCV}"$'\n'
     fi
     if $run_hdf5; then
         echo "[hdf5] Converting LARCV -> HDF5 (${HDF5_FILE})"
-        cmds+="python3 ${INDIR}/convert_larcv_root2hdf5.py --root_file ${LARCV_FILE} --output_file ${HDF5_FILE}"$'\n'
+        cmds+="python3 ${INDIR}/convert_larcv_root2hdf5.py --root_file ${ORG_LARCV} --output_file ${HDF5_FILE}"$'\n'
+        cmds+="mv ${HDF5_FILE} ${ORG_HDF5}"$'\n'
     fi
  
     module load python
     shifter --image=deeplearnphysics/larcv2:ub2204-cu121-torch251-larndsim bash -c "$cmds"
-}
- 
-# --- step: organize -------------------------------------------------------
- 
-step_organize() {
-    echo "[organize] Moving outputs into ${OUTDIR}/{MACROS,EDEPSIM,LARCV,HDF5}"
-
-    $ran_macro && [[ -f "${EDEP_SEEDED_MACRO}" ]] && mv "${EDEP_SEEDED_MACRO}" "${OUTDIR}/MACROS/"
-    $ran_edepsim && [[ -f "${EDEP_FILE}" ]] && mv "${EDEP_FILE}" "${OUTDIR}/EDEPSIM/"
-    $ran_larcv && [[ -f "${LARCV_FILE}" ]] && mv "${LARCV_FILE}" "${OUTDIR}/LARCV/"
-    $ran_hdf5 && [[ -f "${HDF5_FILE}" ]] && mv "${HDF5_FILE}" "${OUTDIR}/HDF5/"
 }
  
 
@@ -199,29 +215,23 @@ step_organize() {
 # Running assumes that all previous files were already produced and were moved to the appropriate OUTDIR subdirectory.
 if should_run "macro"; then
    step_macro
-   ran_macro=true
 else
-    EDEP_SEEDED_MACRO="${OUTDIR}/MACROS/${EDEP_SEEDED_MACRO}"
-    if [[ ! -f "${EDEP_SEEDED_MACRO}" ]]; then
-        echo "[macro] ERROR: ${EDEP_SEEDED_MACRO} not found. Run the 'macro' step first (or -s all)." >&2
+    if [[ ! -f "${ORG_MACRO}" ]]; then
+        echo "[macro] ERROR: ${ORG_MACRO} not found. Run the 'macro' step first (or -s all)." >&2
         exit 1
     fi
 fi
 
 if should_run "edepsim"; then
     step_edepsim
-    ran_edepsim=true
 else
-    EDEP_FILE="${OUTDIR}/EDEPSIM/${EDEP_FILE}"
-    if [[ ! -f "${EDEP_FILE}" ]]; then
-        echo "[edepsim] ERROR: ${EDEP_FILE} not found. Run the 'edepsim' step first (or -s all)." >&2
+    if [[ ! -f "${ORG_EDEPSIM}" ]]; then
+        echo "[edepsim] ERROR: ${ORG_EDEPSIM} not found. Run the 'edepsim' step first (or -s all)." >&2
         exit 1
     fi
 fi
 
 step_larcv_hdf5
-#should_run "organize" && 
-step_organize # always organize files, even if not requested, to ensure outputs are in the right place for next steps
  
 echo "Done. Steps run: ${STEPS}"
 cd "${INDIR}"

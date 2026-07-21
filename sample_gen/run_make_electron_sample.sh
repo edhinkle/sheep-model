@@ -2,13 +2,13 @@
 
 GEOMETRY="simple_LAr_geo.gdml"
 OUTPUT=$1
-NEVENTS=$2
+OUTDIR=$2
+NEVENTS=$3
 EDEP_MACRO="electron_sim_NDLAr"
 EDEP2SUPERA_YAML="sheep_ndlar_edep2supera.yaml"
-OUTDIR="/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES"
 INDIR="/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/sample_gen"
-FILE_INDEX=$3
-STEPS=$4
+FILE_INDEX=$4
+STEPS=$5
 
 
 echo "Running script to generate electron samples."
