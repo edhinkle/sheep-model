@@ -101,13 +101,15 @@ class Trainer():
             if self.log_train_preds == True:
                 with open(self.params['train_pred_log_path'], 'w') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['idx', 'label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
-            
+                    #writer.writerow(['idx', 'label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
+                    writer.writerow(['label', 'prediction'])
+
             # Set up validation prediction logging to file
             if self.log_val_preds == True:
                 with open(self.params['val_pred_log_path'], 'w') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['idx', 'label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
+                    #writer.writerow(['idx', 'label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
+                    writer.writerow(['label', 'prediction'])
 
         self.params['global_batch_size'] = self.params.batch_size
         self.params['local_batch_size'] = int(self.params.batch_size//self.world_size)
@@ -204,7 +206,8 @@ class Trainer():
 
             # training
             if self.log_train_preds == True:
-                tr_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.train_one_epoch()
+                #tr_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.train_one_epoch()
+                tr_time, self.labels, self.predictions = self.train_one_epoch()
                 #print("Start positions:", self.start_positions)
                 if self.train_logE == True:
                     self.labels = np.exp(self.labels)
@@ -223,15 +226,17 @@ class Trainer():
                     if self.world_rank == 0:
                         with open(self.params['train_pred_log_path'], 'a') as f:
                             writer = csv.writer(f)
-                            writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
-            
+                            #writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
+                            writer.writerow([self.labels[i], self.predictions[i]])
+
                 if dist.is_initialized():
                     dist.barrier()  # <-- align all ranks following training on one epoch
 
 
             # validation
             if self.log_val_preds == True:
-                val_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.val_one_epoch()
+                #val_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.val_one_epoch()
+                val_time, self.labels, self.predictions = self.val_one_epoch()
                 #print("Start positions:", self.start_positions)
                 if self.train_logE == True:
                     self.labels = np.exp(self.labels)
@@ -250,7 +255,8 @@ class Trainer():
                     if self.world_rank == 0:
                         with open(self.params['val_pred_log_path'], 'a') as f:
                             writer = csv.writer(f)
-                            writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
+                            writer.writerow([self.labels[i], self.predictions[i]])
+                            #writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
             
                 if dist.is_initialized():
                     dist.barrier()  # <-- align all ranks following training on one epoch
@@ -313,13 +319,13 @@ class Trainer():
         if self.log_train_preds == True:
             labels = []
             preds = []
-            visible_energy = []
-            ve_frac = []
-            mg_frac = []
-            oob_frac = []
-            start_positions = []
-            rotation_matrices = []
-            idxs = []
+            #visible_energy = []
+            #ve_frac = []
+            #mg_frac = []
+            #oob_frac = []
+            #start_positions = []
+            #rotation_matrices = []
+            #idxs = []
 
         end_of_last_step = time.time()
         for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.train_data_loader):
@@ -339,21 +345,21 @@ class Trainer():
                 outputs = self.model(inputs)
                 labels.append(targets.detach().reshape(-1))
                 preds.append(outputs.detach().reshape(-1))
-                ve_frac.append(VE_frac.detach().reshape(-1))
-                mg_frac.append(MG_frac.detach().reshape(-1))
-                oob_frac.append(OOB_frac.detach().reshape(-1))
-                start_positions.append(start_pos.detach())
-                rotation_matrices.append(rot_mat.detach())
-                idxs.append(idx.detach())
+                #ve_frac.append(VE_frac.detach().reshape(-1))
+                #mg_frac.append(MG_frac.detach().reshape(-1))
+                #oob_frac.append(OOB_frac.detach().reshape(-1))
+                #start_positions.append(start_pos.detach())
+                #rotation_matrices.append(rot_mat.detach())
+                #idxs.append(idx.detach())
 
                 # Get VE 
-                batch_ids = inputs[:,0].long()
-                visible_energy_values = inputs[:,4]
-                assert isinstance(visible_energy_values, torch.Tensor)
-                num_batches = int(batch_ids.max().item()) + 1
-                visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
-                visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
-                visible_energy.append(visible_energy_sums.detach())
+                #batch_ids = inputs[:,0].long()
+                #visible_energy_values = inputs[:,4]
+                #assert isinstance(visible_energy_values, torch.Tensor)
+                #num_batches = int(batch_ids.max().item()) + 1
+                #visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
+                #visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
+                #visible_energy.append(visible_energy_sums.detach())
 
 
             loss = self.loss_func(outputs, targets)
@@ -404,7 +410,8 @@ class Trainer():
         print("Total training time for epoch {}: {} sec".format(self.epoch+1, tr_time_total))
 
         if self.log_train_preds == True:
-            return tr_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
+            #return tr_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
+            return tr_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy()
         else:
             return tr_time
 
@@ -422,13 +429,13 @@ class Trainer():
         if self.log_val_preds == True:
             labels = []
             preds = []
-            visible_energy = []
-            ve_frac = []
-            mg_frac = []
-            oob_frac = []
-            start_positions = []
-            rotation_matrices = []
-            idxs = []
+            #visible_energy = []
+            #ve_frac = []
+            #mg_frac = []
+            #oob_frac = []
+            #start_positions = []
+            #rotation_matrices = []
+            #idxs = []
 
         with torch.no_grad():
             for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.val_data_loader):
@@ -443,25 +450,25 @@ class Trainer():
 
 
                 if self.log_val_preds == True:
-                    VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
+                    #VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
                     outputs = self.model(inputs)
                     labels.append(targets.detach().reshape(-1))
                     preds.append(outputs.detach().reshape(-1))
-                    ve_frac.append(VE_frac.detach().reshape(-1))
-                    mg_frac.append(MG_frac.detach().reshape(-1))
-                    oob_frac.append(OOB_frac.detach().reshape(-1))
-                    start_positions.append(start_pos.detach())
-                    rotation_matrices.append(rot_mat.detach())
-                    idxs.append(idx.detach())
+                    #ve_frac.append(VE_frac.detach().reshape(-1))
+                    #mg_frac.append(MG_frac.detach().reshape(-1))
+                    #oob_frac.append(OOB_frac.detach().reshape(-1))
+                    #start_positions.append(start_pos.detach())
+                    #rotation_matrices.append(rot_mat.detach())
+                    #idxs.append(idx.detach())
 
                     # Get VE 
-                    batch_ids = inputs[:,0].long()
-                    visible_energy_values = inputs[:,4]
-                    assert isinstance(visible_energy_values, torch.Tensor)
-                    num_batches = int(batch_ids.max().item()) + 1
-                    visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
-                    visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
-                    visible_energy.append(visible_energy_sums.detach())
+                    #batch_ids = inputs[:,0].long()
+                    #visible_energy_values = inputs[:,4]
+                    #assert isinstance(visible_energy_values, torch.Tensor)
+                    #num_batches = int(batch_ids.max().item()) + 1
+                    #visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
+                    #visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
+                    #visible_energy.append(visible_energy_sums.detach())
 
 
         self.logs['val_loss'] /= len(self.val_data_loader)
@@ -475,7 +482,8 @@ class Trainer():
         val_time = time.time() - val_start
 
         if self.log_val_preds == True:
-            return val_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
+            #return val_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
+            return val_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy()
         else:
             return val_time
 
