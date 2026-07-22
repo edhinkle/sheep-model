@@ -14,7 +14,7 @@
 
 config_file=./configs/2x2_sheep.yaml
 config="weighted_l1_lin"
-run_num="WeightedL1-LinEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs"
+run_num="WeightedL1-LinEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs-TrainValPreds"
 #"WeightedMSE-LinearEnergyScale-50kSample-NDLArTest-HDF5-Test2"
 
 # this is the path to your local env for libs on top of the container

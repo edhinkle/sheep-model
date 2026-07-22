@@ -78,8 +78,8 @@ class Trainer():
         self.params['checkpoint_path'] = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
         self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_train_log.csv'.format(self.run_num, self.config))
         self.params['batch_stats_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_batch_stats_log.csv'.format(self.run_num, self.config))
-        self.params['train_pred_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_epoch{}_train_pred_log.csv'.format(self.run_num, self.config, self.epoch))
-        self.params['val_pred_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_epoch{}_val_pred_log.csv'.format(self.run_num, self.config, self.epoch))
+        self.params['train_pred_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_train_pred_log.csv'.format(self.run_num, self.config))
+        self.params['val_pred_log_path'] = os.path.join(exp_dir, 'logs/{}_{}_val_pred_log.csv'.format(self.run_num, self.config))
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
     def launch(self):
@@ -346,6 +346,15 @@ class Trainer():
                 rotation_matrices.append(rot_mat.detach())
                 idxs.append(idx.detach())
 
+                # Get VE 
+                batch_ids = inputs[:,0].long()
+                visible_energy_values = inputs[:,4]
+                assert isinstance(visible_energy_values, torch.Tensor)
+                num_batches = int(batch_ids.max().item()) + 1
+                visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
+                visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
+                visible_energy.append(visible_energy_sums.detach())
+
 
             loss = self.loss_func(outputs, targets)
             #if self.log_to_screen:
@@ -444,6 +453,15 @@ class Trainer():
                     start_positions.append(start_pos.detach())
                     rotation_matrices.append(rot_mat.detach())
                     idxs.append(idx.detach())
+
+                    # Get VE 
+                    batch_ids = inputs[:,0].long()
+                    visible_energy_values = inputs[:,4]
+                    assert isinstance(visible_energy_values, torch.Tensor)
+                    num_batches = int(batch_ids.max().item()) + 1
+                    visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
+                    visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
+                    visible_energy.append(visible_energy_sums.detach())
 
 
         self.logs['val_loss'] /= len(self.val_data_loader)
