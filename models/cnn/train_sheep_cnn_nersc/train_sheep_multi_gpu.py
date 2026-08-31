@@ -97,7 +97,7 @@ class Trainer():
                 writer = csv.writer(f)
                 writer.writerow(['epoch', 'layer_name', 'global_batch_mean', 'global_batch_var', 'running_mean', 'running_var', 'momentum'])
 
-            # Set up train prediction logging to file
+            # Set up train prediction logging to file 
             if self.log_train_preds == True:
                 with open(self.params['train_pred_log_path'], 'w') as f:
                     writer = csv.writer(f)
@@ -209,7 +209,7 @@ class Trainer():
                 #tr_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.train_one_epoch()
                 tr_time, self.labels, self.predictions = self.train_one_epoch()
                 #print("Start positions:", self.start_positions)
-                if self.train_logE == True:
+                if self.params.train_logE == True:
                     self.labels = np.exp(self.labels)
                     self.predictions = np.exp(self.predictions)
                 else:
@@ -238,7 +238,7 @@ class Trainer():
                 #val_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.val_one_epoch()
                 val_time, self.labels, self.predictions = self.val_one_epoch()
                 #print("Start positions:", self.start_positions)
-                if self.train_logE == True:
+                if self.params.train_logE == True:
                     self.labels = np.exp(self.labels)
                     self.predictions = np.exp(self.predictions)
                 else:
@@ -341,8 +341,8 @@ class Trainer():
             print(f"rank {self.world_rank} batch {i} outputs.shape={outputs.shape}, targets.shape={targets.shape}")
 
             if self.log_train_preds == True:
-                VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
-                outputs = self.model(inputs)
+                #VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
+                #outputs = self.model(inputs)
                 labels.append(targets.detach().reshape(-1))
                 preds.append(outputs.detach().reshape(-1))
                 #ve_frac.append(VE_frac.detach().reshape(-1))
@@ -451,7 +451,7 @@ class Trainer():
 
                 if self.log_val_preds == True:
                     #VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
-                    outputs = self.model(inputs)
+                    #outputs = self.model(inputs)
                     labels.append(targets.detach().reshape(-1))
                     preds.append(outputs.detach().reshape(-1))
                     #ve_frac.append(VE_frac.detach().reshape(-1))
