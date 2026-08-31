@@ -179,6 +179,33 @@ class TestedSheepNDLAr():
             self.true_vs_pred_res_r2 = res.rvalue**2
             plt.close()
 
+            flat_factor = 1/res.slope
+            orig_res = (self.preds-self.labels)/self.labels
+            flat_factor_relative = flat_factor #/ orig_res
+
+            #### True vs. Predicted Energy (All Points) with color by visible energy fraction -- flat factor applied
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.scatter(self.labels, self.preds*flat_factor_relative, c=self.ve/self.labels, cmap='Spectral', vmin=0, alpha=0.7, s=1)
+            ax.plot([self.labels.min(), self.labels.max()], [self.labels.min(), self.labels.max()], 'r--')
+            ax.set_xlabel('True KE [MeV]')
+            ax.set_ylabel(f'Predicted Energy * Flat Factor {flat_factor:.2f} [MeV]')
+            ax.set_title(f'{self.version} True vs. Predicted Energy')
+            plt.colorbar(ax.collections[0], label='Visible Energy Fraction')
+            y_eq_x = np.linspace(0,15010, 15010)
+            ax.plot(y_eq_x, y_eq_x, 'k' '--', alpha=0.7, label="Perfect Prediction")
+            ax.set_xlim(-5,15010)
+            ax.set_ylim(-5,16000)
+            res = linregress(self.labels, self.preds)
+            fitted_line = res.slope * y_eq_x + res.intercept
+            ax.plot(y_eq_x, fitted_line, color='rebeccapurple', label='Linear Best Fit', alpha=0.9, linewidth=2)
+            ax.text(10466, 15472, f'Slope: {res.slope:.2f}\nIntercept: {res.intercept:.2f}\nR²: {res.rvalue**2:.2f}', fontsize=11, color='rebeccapurple', verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.2))
+            ax.legend()
+            output.savefig(fig)
+            self.true_vs_pred_res_slope = res.slope
+            self.true_vs_pred_res_intercept = res.intercept
+            self.true_vs_pred_res_r2 = res.rvalue**2
+            plt.close()
+
 
             #### True vs. Predicted Energy by visible energy fraction bin
             self.ve_frac_bins = np.linspace(0, 1, self.num_ve_frac_bins + 1)
@@ -405,6 +432,206 @@ class TestedSheepNDLAr():
             ax_main.hist(bin_edges_vis_true[:-1], bins=bin_edges_vis_true, weights=hist_counts_vis_true/ num_events, label="(Visible - True) / True", alpha=0.5, edgecolor="none")
             #plt.plot(bin_centers_vis_true, gaussian(bin_centers_vis_true, *vis_true_params), color='blue', linestyle="--")
             ax_main.hist(bin_edges_true_pred[:-1],bins=bin_edges_true_pred, weights=hist_counts_true_pred/ num_events, label="(SHEEP - True) / True", alpha=0.5, edgecolor="none")
+            ax_main.plot(x, bin_width * pdf, color='sienna', linestyle="--", linewidth=1)
+            ax_main.plot(bin_centers_vis_true, bin_width * crystalball.pdf(bin_centers_vis_true, *cb_params_vis), color='blue', linestyle="--", linewidth=1)
+            #ax.plot(bin_centers_true_pred, gaussian(bin_centers_true_pred, *true_pred_params), color='sienna', linestyle="--")
+            ax_main.legend(fontsize=11)
+            ax_main.set_xlim(-2, 2.3)
+            #ax_main.set_yscale('log')
+            #ax_main.set_ylim(1e-4, 0.5)
+            ax_main.set_ylabel(f"Fraction of Test Events / {bin_width:.2f}")
+            ax_main.set_xlabel("Test Event Energy Resolution")
+            ax=plt.gca()
+            #ax_main.text(0.8, 0.23, r"$\mathbf{Mean:}$"+f"{cb_params_pred[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_pred[3]:.2f}\n"+r"$\mathbf{Skew:}$"+f"{self.pred_res_total_skew:.2f}\n"+r"$\mathbf{Kurtosis:}$"+f"{self.pred_res_total_kurtosis:.2f}", fontsize=12, verticalalignment='top', color='sienna')
+            ax_main.text(0.8, 0.2, r"$\mathbf{Mean:}$"+f"{loc:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{scale:.2f}\n"+r"$\mathbf{DoF:}$"+f"{df:.2f}\n", fontsize=12, verticalalignment='top', color='sienna')
+            ax_main.text(0.8, 0.1, r"$\mathbf{Mean:}$"+f"{cb_params_vis[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_vis[3]:.2f}\n"+r"$\mathbf{\alpha:}$"+f"{cb_params_vis[0]:.2f}\n"+r"$\mathbf{n:}$"+f"{cb_params_vis[1]:.2f}", fontsize=12, verticalalignment='top', color='blue')
+            #ax_main.text(-1.88, 0.267, f"PRELIMINARY", fontsize=18, verticalalignment='top', color='black', alpha=0.35, fontweight='bold')
+            ax_main.text(-1.88, 0.267, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
+
+            # --- Residual plot ---
+            # Expected values from CB fits, evaluated at bin centers
+            expected_pred = bin_width * pdf_bin_centers#double_cb_pdf(bin_centers_true_pred, *dcb_params_pred) # note: reflected
+            expected_vis  = bin_width * crystalball.pdf(bin_centers_vis_true, *cb_params_vis)
+            
+            observed_pred = hist_counts_true_pred / num_events
+            observed_vis  = hist_counts_vis_true / num_events
+            
+            # Poisson errors on the normalized counts
+            errors_pred = np.sqrt(hist_counts_true_pred) / num_events
+            errors_vis  = np.sqrt(hist_counts_vis_true)  / num_events
+            errors_pred[errors_pred == 0] = (1 / num_events) / num_events  # avoid division by zero
+            errors_vis[errors_vis == 0]   = (1 / num_events) / num_events
+            
+            pulls_pred = (observed_pred - expected_pred) / errors_pred
+            pulls_vis  = (observed_vis  - expected_vis)  / errors_vis
+            
+            ax_res.bar(bin_centers_true_pred, pulls_pred, width=bin_width, alpha=0.5, color='sienna', label='SHEEP')
+            ax_res.bar(bin_centers_vis_true,  pulls_vis,  width=bin_width, alpha=0.5, color='blue',   label='Visible')
+            ax_res.axhline(0,  color='black', linewidth=0.8)
+            ax_res.axhline(+2, color='gray',  linewidth=0.8, linestyle=':')
+            ax_res.axhline(-2, color='gray',  linewidth=0.8, linestyle=':')
+            ax_res.set_ylabel("Pull (σ)")
+            ax_res.set_xlabel("Test Event Energy Resolution")
+            ax_res.set_ylim(-5, 5)
+            ax_res.set_xlim(-2, 2.3)
+
+            # --- Chi2/NDF for pred (reflected CB) ---
+            #expected_pred = bin_width * double_cb_pdf(bin_centers_true_pred, *dcb_params_pred)
+            observed_pred = hist_counts_true_pred / num_events
+
+            # Only use bins with enough counts
+            mask_pred = observed_pred > (5 / num_events)
+            n_params = 6  # amplitude, loc, scale
+            ndf_pred = mask_pred.sum() - n_params
+
+            chi2_pred = np.sum((observed_pred[mask_pred] - expected_pred[mask_pred])**2 / expected_pred[mask_pred])
+            print(f"Pred CB: chi2/ndf = {chi2_pred:.2f} / {ndf_pred} = {chi2_pred/ndf_pred:.2f}")
+
+            # --- Chi2/NDF for vis CB ---
+            expected_vis = bin_width * crystalball.pdf(bin_centers_vis_true, *cb_params_vis)
+            observed_vis = hist_counts_vis_true / num_events
+
+            mask_vis = observed_vis > (5 / num_events)
+            ndf_vis = mask_vis.sum() - 4
+
+            chi2_vis = np.sum((observed_vis[mask_vis] - expected_vis[mask_vis])**2 / expected_vis[mask_vis])
+            print(f"Vis CB:  chi2/ndf = {chi2_vis:.2f} / {ndf_vis} = {chi2_vis/ndf_vis:.2f}")
+
+
+            fig.tight_layout()
+            output.savefig(fig)
+            self.pred_total_res_gauss_fit_mean = loc#dcb_params_pred[4]#true_pred_params[1]
+            self.pred_total_res_gauss_fit_std = scale#dcb_params_pred[5]#true_pred_params[2]
+            plt.close()
+
+            #### True - Predicted / True Energy (All Points) Fit to Gaussian with prediction scaled by flat factor
+            plt.rcParams.update({'font.size': 12})
+            plt.rcParams.update({'legend.fontsize': 12})
+            #plt.rcParams['font.family'] = 'serif'
+            #plt.rcParams['mathtext.fontset'] = 'stix'
+            plt.rcParams['xtick.direction'] = 'in'
+            plt.rcParams['ytick.direction'] = 'in'
+            plt.rcParams['xtick.top'] = True
+            plt.rcParams['ytick.right'] = True
+            plt.rcParams['xtick.major.size'] = 5
+            plt.rcParams['xtick.minor.size'] = 3
+            plt.rcParams['ytick.major.size'] = 5
+            plt.rcParams['ytick.minor.size'] = 3
+
+            res_vis_true = (self.ve - self.labels) / self.labels
+            res_true_pred = (self.preds*flat_factor_relative - self.labels)/ self.labels
+            data_min = min(res_true_pred.min(), res_vis_true.min())
+            data_max = max(res_true_pred.max(), res_vis_true.max())
+            rbins = np.linspace(data_min, data_max, int(round((data_max - data_min), 2) * 50) + 1)
+            bin_width = rbins[1] - rbins[0]
+            num_events=len(res_vis_true)
+
+            hist_counts_vis_true, bin_edges_vis_true = np.histogram(res_vis_true, bins=rbins, density=False)
+            bin_centers_vis_true = (bin_edges_vis_true[:-1] + bin_edges_vis_true[1:]) / 2
+            initial_guesses_vis_true  = [np.max(hist_counts_vis_true), np.mean(res_vis_true), np.std(res_vis_true)]
+
+            hist_counts_true_pred, bin_edges_true_pred = np.histogram(res_true_pred, bins=rbins, density=False)
+            bin_centers_true_pred = (bin_edges_true_pred[:-1] + bin_edges_true_pred[1:]) / 2
+            initial_guesses_true_pred  = [np.max(hist_counts_true_pred / num_events), np.mean(res_true_pred), np.std(res_true_pred)]
+            #print(f"Initial Guesses for (SHEEP - True) / True Gaussian Fit: {initial_guesses_true_pred}")
+            q3, q1 = np.percentile(res_true_pred, [75, 25])
+            iqr_value = q3 - q1
+
+            print(f"IQR Value: {iqr_value}")
+            # Perform the curve fit
+            #vis_true_params, vis_true_covariance = curve_fit(gaussian, bin_centers_vis_true, hist_counts_vis_true, p0=initial_guesses_vis_true)
+            #true_pred_params, true_pred_covariance = curve_fit(gaussian, bin_centers_true_pred, hist_counts_true_pred/ num_events, p0=initial_guesses_true_pred)
+            bounds = Bounds(
+                                lb=[0.1, 1.01, -np.inf, 0.001],
+                                ub=[10.0, 50.0,  np.inf, np.inf]
+                            )
+            bounds_gauss = Bounds(
+                lb=[-0.1, 0.001],
+                ub=[0.1, np.inf]
+            )
+
+            bounds_dcb = Bounds(
+                lb=[0.1, 1.01, 0.1, 1.01, -0.1, 0.001],
+                ub=[1.0, 50.0, 1.0, 50.0,  0.1, 0.15]
+            )
+            bounds_list = list(zip(bounds_dcb.lb, bounds_dcb.ub))
+
+
+            # --- Pred ---
+            df, loc, scale = t.fit(res_true_pred)# df=3, loc=0, scale=0.02)
+            x = np.linspace(res_true_pred.min(), res_true_pred.max(), 500)
+            pdf = t.pdf(x, df, loc, scale)
+            pdf_bin_centers = t.pdf(bin_centers_true_pred, df, loc, scale)
+
+            #x0_pred = [0.2, 3.0, 0.2, 3.0, 0, 0.03]
+            #result_dcb_pred = differential_evolution(
+            #    binned_double_cb_nll,
+            #    bounds_list,
+            #    args=(bin_centers_true_pred, hist_counts_true_pred, bin_width, num_events),
+            #    maxiter=300,
+            #    popsize=20,
+            #    seed=42,
+            #    polish=True
+            #)
+            #dcb_params_pred = result_dcb_pred.x
+            #dcb_params_pred = result_dcb_pred.x
+            seeds = [
+                #[0.25, 25.0, 0.25, 25.0, 0.0, 0.05],
+                #[0.5, 10.0, 0.5, 10.0, 0.0, 0.08],
+                #[1.0, 5.0, 1.0, 5.0, 0.0, 0.10],
+                #[0.2, 50.0, 0.2, 50.0, 0.0, 0.03],
+                #[0.1, 2.0, 0.1, 2.0, 0.0, 0.01],
+                [0.15, 5.0, 0.15, 5.0, 0.0, 0.02],
+                #[0.3, 8.0, 0.3, 8.0, 0.0, 0.04],
+                #[0.1, 30.0, 0.1, 30.0, 0.0, 0.025],
+            ]
+        
+            '''best_result = None
+            best_nll = np.inf
+            
+            for x0_pred in seeds:
+                result = minimize(
+                    binned_double_cb_nll,
+                    x0=x0_pred,
+                    args=(bin_centers_true_pred, hist_counts_true_pred, bin_width, num_events),
+                    method='L-BFGS-B',
+                    bounds=bounds_dcb
+                )
+                print("Result for seed {}: success={}, nll={:.4f}".format(x0_pred, result.success, result.fun))
+                if result.success and result.fun < best_nll:
+                    best_nll = result.fun
+                    best_result = result
+        
+            dcb_params_pred = best_result.x
+            print(f"DCB pred converged: {best_result.success} — {best_result.message}")
+            print(f"beta_l={dcb_params_pred[0]:.3f}, m_l={dcb_params_pred[1]:.3f}, "
+                  f"beta_r={dcb_params_pred[2]:.3f}, m_r={dcb_params_pred[3]:.3f}, "
+                  f"loc={dcb_params_pred[4]:.3f}, scale={dcb_params_pred[5]:.3f}")
+            '''
+            # --- Vis (not reflected) ---
+            x0_vis = [1.0, 2.0, np.mean(res_vis_true), np.std(res_vis_true)]
+            result_vis = minimize(
+                binned_cb_nll,
+                x0=x0_vis,
+                args=(bin_centers_vis_true, hist_counts_vis_true, bin_width, num_events, False),
+                method='L-BFGS-B',
+                bounds=bounds
+            )
+            cb_params_vis = result_vis.x
+            print(f"Vis converged:  {result_vis.success} — {result_vis.message}")
+            #x_cb_pred = np.linspace(res_true_pred.min(), res_true_pred.max(), 10000)
+            #x_cb_vis = np.linspace(res_vis_true.min(), res_vis_true.max(), 10000)
+            #self.pred_res_total_skew = skew(res_true_pred)
+            #self.pred_res_total_kurtosis = kurtosis(res_true_pred)
+
+
+
+            fig, (ax_main, ax_res) = plt.subplots(2, 1, figsize=(8, 8), 
+                                        gridspec_kw={'height_ratios': [3, 1]}, 
+                                        sharex=True)
+            ax_main.hist(bin_edges_vis_true[:-1], bins=bin_edges_vis_true, weights=hist_counts_vis_true/ num_events, label="(Visible - True) / True", alpha=0.5, edgecolor="none")
+            #plt.plot(bin_centers_vis_true, gaussian(bin_centers_vis_true, *vis_true_params), color='blue', linestyle="--")
+            ax_main.hist(bin_edges_true_pred[:-1],bins=bin_edges_true_pred, weights=hist_counts_true_pred/ num_events, label=f"(SHEEP*Flat Factor {flat_factor:.2f} - True) / True", alpha=0.5, edgecolor="none")
             ax_main.plot(x, bin_width * pdf, color='sienna', linestyle="--", linewidth=1)
             ax_main.plot(bin_centers_vis_true, bin_width * crystalball.pdf(bin_centers_vis_true, *cb_params_vis), color='blue', linestyle="--", linewidth=1)
             #ax.plot(bin_centers_true_pred, gaussian(bin_centers_true_pred, *true_pred_params), color='sienna', linestyle="--")
