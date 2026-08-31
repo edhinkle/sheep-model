@@ -7,14 +7,14 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --job-name=sheep-dl-500k-weighted-l1-lin-2x2Electrons
+#SBATCH --job-name=sheep-dl-500k-weighted-mse-lin-2x2Electrons
 #SBATCH --image=deeplearnphysics/larcv2:ub22.04-cuda12.1-pytorch2.4.0-larndsim
 #SBATCH --module=cvmfs,gpu,nccl-2.18
 #SBATCH --output=shifter_job_log_%j.out
 
 config_file=./configs/2x2_sheep.yaml
-config="weighted_l1_lin"
-run_num="WeightedL1-LinEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs-TrainValPreds"
+config="weighted_mse_lin"
+run_num="WeightedMSE-LinearEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs-CheckDeterminism2"
 #"WeightedMSE-LinearEnergyScale-50kSample-NDLArTest-HDF5-Test2"
 
 # this is the path to your local env for libs on top of the container
