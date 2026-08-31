@@ -1,0 +1,147 @@
+default: &default
+  num_data_workers: 32
+  # model
+  reps: 2
+  depth: 9
+  filters: 32
+  input_kernel: 7
+  coord_conv: !!bool True
+  pool_mode: 'sum'
+  spatial_size: 292
+  num_input: 4
+  feature_size: 1
+  allow_bias: !!bool False
+  # optimization
+  lr: 0.0001
+  lr_epochs_low: 20
+  lr_epochs_high: 60
+  lr_start_factor: 1.0
+  lr_decay_gamma: 0.975
+  optimizer: 'Adam'
+  max_epochs: 3
+  batch_size: 3200
+  valid_batch_size: 1000
+  bn_momentum: 0.01
+  # misc
+  log_to_screen: !!bool True
+  save_checkpoint: !!bool True
+  # data locations
+  train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_ELECTRON_SAMPLES/HDF5/TRAIN/'
+  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_ELECTRON_SAMPLES/HDF5/TEST/'
+  val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_ELECTRON_SAMPLES/HDF5/VALIDATION/'
+  train_files: 8000
+  val_files: 1000
+  test_files: 1000
+  # detector-based data augmentation
+  beam_dir: [0, -0.05826087, 0.9983014] # normalized for 2x2 beam
+  detector_active_regions: [[[ -63.931, -62.076,   -64.538],
+                             [ 63.931,  62.076,  64.538]]]
+  random_seed: 0
+  voxel_size: [0.4434, 0.4434, 0.4434]
+  min_visible_energy: 2.0
+  inner_wall_fv_cut: 2.0
+  outer_wall_fv_cut: 2.0
+  ds_wall_fv_cut: 3.0
+  ndlar_fv_cut: !!bool False
+  ndlar_nue_profile: !!bool False
+  nue_profile_file: "/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/nue_properties.csv"
+  # photons vs. electrons
+  photons_in_sample: !!bool True
+  electrons_in_sample: !!bool False
+  event_vertex_in_fv: !!bool False #TODO: Fix so this can be used
+  particle_start_in_fv: !!bool True
+  energy_threshold: 0.200 # MeV
+  set_energy_threshold: !!bool False
+  #log train and val predictions
+  log_train_preds: !!bool False
+  log_val_preds: !!bool False
+  energy_scaled: 1000.0
+  # Energy scaled to /1000 for training stability
+
+
+# Variations on the default config for different training and evaluation scenarios
+mse_lin:
+  <<: *default
+  loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+weighted_mse_lin:
+  <<: *default
+  loss_fn: 'WeightedMSELoss'
+  train_logE: !!bool False
+
+mse_log:
+  <<: *default
+  loss_fn: 'MSELoss'
+  train_logE: !!bool True
+
+l1_lin:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+weighted_l1_lin:
+  <<: *default
+  loss_fn: 'WeightedL1Loss'
+  train_logE: !!bool False
+
+l1_log:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+huber_lin:
+  <<: *default
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool False
+
+huber_log:
+  <<: *default  
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool True
+
+# Configs for testing the trained model on the test set, with some modifications for stability and speed
+test: &test # inherit configs from the alias default
+  <<: *default
+  test_batch_size: 1000
+
+test_mse_lin:
+  <<: *test
+  loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+test_weighted_mse_lin:
+  <<: *test
+  loss_fn: 'WeightedMSELoss'
+  train_logE: !!bool False
+
+test_mse_log:
+  <<: *test
+  loss_fn: 'MSELoss'
+  train_logE: !!bool True
+
+test_l1_lin:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+test_weighted_l1_lin:
+  <<: *test
+  loss_fn: 'WeightedL1Loss'
+  train_logE: !!bool False
+
+test_l1_log:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+test_huber_lin:
+  <<: *test
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool False
+
+test_huber_log:
+  <<: *test
+  loss_fn: 'HuberLoss'    
+  train_logE: !!bool True
+
