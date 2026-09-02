@@ -19,7 +19,7 @@ default: &default
   lr_decay_gamma: 0.975
   weight_decay: 0.0001
   optimizer: 'Adam'
-  max_epochs: 100
+  max_epochs: 5
   batch_size: 3200
   valid_batch_size: 1000
   bn_momentum: 0.01
@@ -30,9 +30,9 @@ default: &default
   train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_ELECTRON_SAMPLES/HDF5/TRAIN/'
   test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_ELECTRON_SAMPLES/HDF5/TEST/'
   val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_ELECTRON_SAMPLES/HDF5/VALIDATION/'
-  train_files: 8000
-  val_files: 1000
-  test_files: 1000
+  train_files: 1600
+  val_files: 200
+  test_files: 200
   # detector-based data augmentation
   beam_dir: [0, -0.05826087, 0.9983014] # normalized for 2x2 beam
   detector_active_regions: [[[  3.069, -62.076,   2.4620001],
