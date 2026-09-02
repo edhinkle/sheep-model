@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --time=4:15:00
+#SBATCH --time=0:05:00
 #SBATCH --constraint=gpu
 #SBATCH --account=dune
 #SBATCH --qos=regular
@@ -7,14 +7,14 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --job-name=sheep-dl-500k-l1-log-2x2Electrons-Monolithic
+#SBATCH --job-name=sheep-dl-500k-weighted-mse-lin-2x2Electrons
 #SBATCH --image=deeplearnphysics/larcv2:ub22.04-cuda12.1-pytorch2.4.0-larndsim
 #SBATCH --module=cvmfs,gpu,nccl-2.18
 #SBATCH --output=shifter_job_log_%j.out
 
-config_file=./configs/monolithic_sheep.yaml
-config="l1_log"
-run_num="L1-LogEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs-TrainMonolithic"
+config_file=./configs/2x2_sheep.yaml
+config="weighted_mse_lin"
+run_num="WeightedMSE-LinearEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs"
 #"WeightedMSE-LinearEnergyScale-50kSample-NDLArTest-HDF5-Test2"
 
 # this is the path to your local env for libs on top of the container
@@ -25,7 +25,7 @@ run_num="L1-LogEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs-TrainMonolithi
 # for DDP
 export MASTER_ADDR=$(hostname)
 
-cmd="python train_sheep_multi_gpu.py --yaml_config=$config_file --config=$config --run_num=$run_num"
+cmd="python check_val_checkpoint_multi_gpu.py --yaml_config=$config_file --config=$config --run_num=$run_num"
 
 module load python
 set -x
