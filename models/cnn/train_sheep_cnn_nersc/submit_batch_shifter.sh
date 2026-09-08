@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --time=0:10:00
+#SBATCH --time=4:25:00
 #SBATCH --constraint=gpu
 #SBATCH --account=dune
 #SBATCH --qos=regular
@@ -7,14 +7,14 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --job-name=sheep-dl-500k-l1-lin-2x2Electrons-VEFracTarget
+#SBATCH --job-name=sheep-dl-500k-mse-lin-2x2Electrons-VEFracTarget
 #SBATCH --image=deeplearnphysics/larcv2:ub22.04-cuda12.1-pytorch2.4.0-larndsim
 #SBATCH --module=cvmfs,gpu,nccl-2.18
 #SBATCH --output=shifter_job_log_%j.out
 
 config_file=./configs/2x2_sheep.yaml
-config="l1_lin"
-run_num="L1-LinEnergyScale-100kSample-2x2Electrons-3200bs-1000vbs-VEFracTarget"
+config="mse_lin"
+run_num="MSE-LinEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs-VEFracTarget"
 #"WeightedMSE-LinearEnergyScale-50kSample-NDLArTest-HDF5-Test2"
 
 # this is the path to your local env for libs on top of the container

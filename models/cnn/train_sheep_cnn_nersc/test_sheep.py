@@ -78,7 +78,7 @@ class Tester():
                 raise ValueError(f"Training directory {train_dir} does not exist. Please train the model before testing.")
         self.params['experiment_dir'] = os.path.abspath(exp_dir)
         self.params['train_dir'] = os.path.abspath(train_dir)
-        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_test_DATALIKE_NUonE.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
+        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_log_test.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
         self.params['checkpoint_path'] = os.path.join(train_dir, 'checkpoints/'+self.checkpoint_file)
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
@@ -144,14 +144,16 @@ class Tester():
         self.restore_checkpoint(self.params.checkpoint_path)
 
         # launch testing
-        self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.test()
+        self.labels, self.predictions, self.visible_energy, self.ke_init, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.test()
         #print("Start positions:", self.start_positions)
         if self.train_logE == True:
             self.labels = np.exp(self.labels)
             self.predictions = np.exp(self.predictions)
         else:
-            self.labels = self.labels*self.params.energy_scaled
-            self.predictions = self.predictions*self.params.energy_scaled
+            self.ve_frac = self.labels
+            self.labels = (self.ke_init)*self.params.energy_scaled
+            #print("Predictions:", self.predictions)
+            self.predictions = (self.visible_energy/self.predictions)#*self.params.energy_scaled
 
        #if dist.is_initialized():
         #    dist.barrier()  # <-- align all ranks following training on one epoch
@@ -177,7 +179,7 @@ class Tester():
         labels = []
         preds = []
         visible_energy = []
-        ve_frac = []
+        ke_init = []
         mg_frac = []
         oob_frac = []
         start_positions = []
@@ -189,12 +191,14 @@ class Tester():
 
         with torch.no_grad():
             for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.test_data_loader):
+                KE_initial = targets
+                targets = VE_frac
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
-                VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
+                KE_initial, MG_frac, OOB_frac, start_pos, rot_mat = KE_initial.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
                 outputs = self.model(inputs)
                 labels.append(targets.detach().reshape(-1))
                 preds.append(outputs.detach().reshape(-1))
-                ve_frac.append(VE_frac.detach().reshape(-1))
+                ke_init.append(KE_initial.detach().reshape(-1))
                 mg_frac.append(MG_frac.detach().reshape(-1))
                 oob_frac.append(OOB_frac.detach().reshape(-1))
                 start_positions.append(start_pos.detach())
@@ -214,7 +218,8 @@ class Tester():
                 num_batches = int(batch_ids.max().item()) + 1
                 visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
                 visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
-                visible_energy.append(visible_energy_sums.detach())
+                visible_energy.append(visible_energy_sums.detach().reshape(-1))
+                #print("Visible energy:", visible_energy)
 
                 pbar.update(1)
 
@@ -225,7 +230,7 @@ class Tester():
         if self.log_to_screen:
             print("Test time: {:.2f}s".format(test_time))
 
-        return torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
+        return torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ke_init).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
 
     def plot_results(self):
 

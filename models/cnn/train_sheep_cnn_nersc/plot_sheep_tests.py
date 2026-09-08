@@ -18,13 +18,16 @@ import argparse
 import csv
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.axes import Axes
-from scipy.stats import linregress, skew, kurtosis, norm, crystalball, t
+from scipy.stats import linregress, skew, kurtosis, norm, crystalball, t, mode
 from scipy.optimize import curve_fit, minimize, Bounds, differential_evolution
 from mpl_toolkits.mplot3d.axes3d import Axes
 
 
 def gaussian(x, amplitude, mean, std_dev):
     return amplitude * np.exp(-((x - mean) ** 2) / (2 * std_dev ** 2))
+
+def linear(x, m, b):
+    return m*x+b
 
 
 class TestedSheep():
@@ -53,6 +56,7 @@ class TestedSheep():
         ve_frac = []
         mg_frac = []
         oob_frac = []
+        thresh_frac = []
         start_position = []
         rotation_matrix = []
         with open(self.csv_file, 'r') as f:
@@ -65,6 +69,7 @@ class TestedSheep():
                 ve_frac.append(float(row['ve_frac']))
                 mg_frac.append(float(row['mg_frac']))
                 oob_frac.append(float(row['oob_frac']))
+                thresh_frac.append(1-(float(row['ve_frac'])+float(row['mg_frac'])+float(row['oob_frac'])))
                 start_position.append(str(row['start_position']))
                 rotation_matrix.append(str(row['rotation_matrix']))
 
@@ -74,6 +79,7 @@ class TestedSheep():
         self.ve_frac = np.array(ve_frac)
         self.mg_frac = np.array(mg_frac)
         self.oob_frac = np.array(oob_frac)
+        self.thresh_frac = np.array(thresh_frac)
         self.start_position = np.array([np.fromstring(s.strip('[]'), sep=' ') for s in start_position])
         self.rotation_matrix = np.array([
             np.fromstring(r.replace('\n', ' ').replace('[', '').replace(']', ''), sep=' ').reshape(3, 3)
@@ -326,6 +332,56 @@ class TestedSheep():
             fig.suptitle(f'{self.version} Uncontained Missing Energy by True Event Energy', size=14)
             output.savefig(fig)
             plt.close()
+
+            ### Thresholded Energy by Energy 
+            fig, ax = plt.subplots(figsize=(8,6))
+            h = plt.hist2d(self.labels,self.thresh_frac,bins=(self.ebins,self.missing_frac_bins),cmap='magma_r',cmin=1)
+            im = h[3]
+            plt.xlabel("True Event Energy [MeV]")
+            plt.ylabel(f"Below Threshold [def: 200 keV]\n Energy Fraction")
+            cbar = fig.colorbar(im, ax=ax,orientation='vertical', fraction=0.02, pad=0.02)
+            cbar.set_label('Events', fontsize=12)
+            fig.suptitle(f'{self.version} Below Threshold Energy \nby True Event Energy', size=14)
+            output.savefig(fig)
+            plt.close()    
+
+            ### Thresholded Energy by Energy -- more granular
+            self.missing_frac_bins_granular = np.linspace(0, 0.6, 60 + 1)
+            self.ebins_granular = np.linspace(0, 2000, 40 + 1)
+            self.ebins_granular_centers = (self.ebins_granular[1:]+self.ebins_granular[:-1])/2
+            thresh_frac_means = []
+            thresh_frac_modes = []
+            thresh_frac_std = []
+            for b in range(len(self.ebins_granular_centers)):
+                bin_mask = (self.labels > self.ebins_granular[b]) & (self.labels <= self.ebins_granular[b + 1])
+                if np.sum(bin_mask) == 0:
+                    continue
+                thresh_frac_bin = self.thresh_frac[bin_mask]
+                thresh_frac_means.append(np.mean(thresh_frac_bin))
+                thresh_frac_modes.append(mode(np.array(thresh_frac_bin)).mode)
+                thresh_frac_std.append(np.std(thresh_frac_bin))
+            print("EBin centers:", self.ebins_granular_centers)
+            print("Means:", thresh_frac_means)
+            print("Modes length:", np.size(thresh_frac_modes))
+            print(thresh_frac_modes)
+            fig, ax = plt.subplots(figsize=(8,6))
+            h = plt.hist2d(self.labels,self.thresh_frac,bins=(self.ebins_granular,self.missing_frac_bins_granular),cmap='magma_r',cmin=1)
+            im = h[3]
+            ax.scatter(self.ebins_granular_centers, np.array(thresh_frac_modes), color='yellow', label='Mode')
+            plt.errorbar(self.ebins_granular_centers, np.array(thresh_frac_means), yerr=np.array(thresh_frac_std), marker='o', markersize=3, capsize=2, color='skyblue', linestyle='None', label='Mean +/- Std')
+            popt, pcov = curve_fit(linear, self.ebins_granular_centers, np.array(thresh_frac_means), sigma=np.array(thresh_frac_std))
+            m_opt, c_opt = popt
+            m_err, c_err = np.sqrt(np.diagonal(pcov))
+            fitted_line = linear(self.ebins_granular_centers, m_opt, c_opt)
+            plt.plot(self.ebins_granular_centers, fitted_line, color='blue', label=f'Linear Best Fit, m={m_opt:.6f}, c={c_opt:.6f}', alpha=0.9, linestyle='--', linewidth=2)
+            plt.xlabel("True Event Energy [MeV]")
+            plt.ylabel(f"Below Threshold [def: 200 keV]\n Energy Fraction")
+            cbar = fig.colorbar(im, ax=ax,orientation='vertical', fraction=0.02, pad=0.02)
+            cbar.set_label('Events', fontsize=12)
+            fig.suptitle(f'{self.version} Below Threshold Energy \nby True Event Energy', size=14)
+            plt.legend()
+            output.savefig(fig)
+            plt.close()   
 
 
 

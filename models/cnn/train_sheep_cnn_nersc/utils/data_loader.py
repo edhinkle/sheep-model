@@ -357,6 +357,8 @@ class ShowerDataset(Dataset):
             energy_mask = features[:, 0] >= self._energy_threshold
             coords = coords[energy_mask]
             features = features[energy_mask]
+            total_visible_energy_after_threshold = np.sum(features[:, 0])  # Sum of energies in MeV after thresholding
+            ve_frac = total_visible_energy_after_threshold / true_KE_initial if true_KE_initial > 0 else 0.0
             #print(f"Applied energy threshold of {self._energy_threshold} MeV. Number of voxels after thresholding: {len(coords)}")
 
         #final_visible_energy = np.sum(features[:, 0])  # Sum of energies in MeV
