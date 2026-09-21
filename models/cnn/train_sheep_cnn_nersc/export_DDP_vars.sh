@@ -24,5 +24,8 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 export NCCL_DEBUG=INFO
 export PYTHONFAULTHANDLER=1
+
+# Allow PyTorch to allocate memory in expandable segments
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # Optional, to rule out fabric quirks briefly (slower):
 # export NCCL_IB_DISABLE=1
