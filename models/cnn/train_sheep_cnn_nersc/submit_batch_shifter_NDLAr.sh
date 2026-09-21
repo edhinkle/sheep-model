@@ -29,7 +29,7 @@ cmd="python train_sheep_multi_gpu.py --yaml_config=$config_file --config=$config
 
 module load python
 set -x
-srun -l shifter \
+srun --cpu-bind=cores -l shifter \
     bash -c "
     set +o posix
     source export_DDP_vars.sh
