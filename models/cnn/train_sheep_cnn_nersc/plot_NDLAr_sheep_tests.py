@@ -102,7 +102,7 @@ class TestedSheepNDLAr():
         self.num_ve_frac_bins = args.num_ve_frac_bins
 
         self.output_pdf_dir = os.path.join(self.results_dir, self.config, self.run_num, 'plots')
-        self.output_pdf_name = '{}_{}_{}_NUEtest_results.pdf'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0])
+        self.output_pdf_name = '{}_{}_{}_NUonEtest_results.pdf'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0])
         os.makedirs(self.output_pdf_dir, exist_ok=True)
 
     def get_values_from_csv(self):

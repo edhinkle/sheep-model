@@ -284,6 +284,7 @@ class ShowerDataset(Dataset):
         self._last_fixed_aug_transformed_segments = None
         self._last_fixed_aug_all_energy_points = None
         self._last_fixed_aug_visible_points_mask = None
+        self._augment_samples = params.augment_samples  # Whether to augment samples (for training) or not (for testing)
 
     def __len__(self):
         return np.sum(self._events_per_file)
@@ -321,16 +322,30 @@ class ShowerDataset(Dataset):
         # Same for train/validation/test now
         rng = self._get_deterministic_rng_per_event(idx)
         #print(f"Event ID: {idx}, RNG state: {rng.bit_generator.state}")  # Debugging line to check RNG state for each event
-        # Use fixed augmentation if visualization mode is enabled
-        if self._fixed_augmentation_mode and self._fixed_start_pos is not None:
-            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(idx,
+        if self._augment_samples == True:
+            # Use fixed augmentation if visualization mode is enabled
+            if self._fixed_augmentation_mode and self._fixed_start_pos is not None:
+                vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(idx,
                 rng, positions_cm, energy_per_voxel, true_KE_initial, particle_start, self._min_visible_energy,
                 fixed_start_pos=self._fixed_start_pos, fixed_rotation_matrix=self._fixed_rotation_matrix
             )
-        else:
-            vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(idx,
+            else:
+                vis_segs, ve_frac, mg_frac, oob_frac, start_pos, rot_mat = self._get_filtered_segments(idx,
                 rng, positions_cm, energy_per_voxel, true_KE_initial, particle_start, self._min_visible_energy
             )
+        else:
+            # No augmentation -- just use original positions and energy
+            vis_segs = np.zeros(positions_cm.shape[0], dtype=segments_event_data_dtype)  # Create an empty array for visible segments
+            vis_segs['dE'] = energy_per_voxel.flatten()  # Fill the energy depositions
+            vis_segs['x'] = positions_cm[:, 0]  # Fill the x coordinate
+            vis_segs['y'] = positions_cm[:, 1]  # Fill the y coordinate
+            vis_segs['z'] = positions_cm[:, 2]  # Fill the z coordinate
+
+            ve_frac = np.sum(energy_per_voxel) / true_KE_initial  # Calculate visible energy fraction
+            mg_frac = 0.0  # No module gap energy fraction since no augmentation
+            oob_frac = 0.0  # No out-of-bounds energy fraction since no augmentation
+            start_pos = particle_start  # Use the original particle start position
+            rot_mat = np.eye(3)  # Identity matrix for rotation (no rotation)
 
         
         # Voxelize the filtered segments SPARSELY
@@ -567,8 +582,8 @@ class ShowerDataset(Dataset):
             print("Out of bounds energy fraction: ", out_of_det_bounds_energy_fraction)
             print("Min bounds: ", self._min_bounds)
             print("Max bounds: ", self._max_bounds)
-            z_mask = abs(positions_to_use[:, 2]) < 64
-            print("Positions passing z mask: ", positions_to_use[z_mask])
+            #z_mask = abs(positions_to_use[:, 2]) < 64 # specific to 2x2
+            #print("Positions passing z mask: ", positions_to_use[z_mask])
         #if visible_energy <= 0.:
         #    raise RuntimeError(f"Not enough visible energy ({visible_energy}) for event with initial KE {true_KE_initial}. Resampling and contingency failed.")
             
@@ -773,7 +788,7 @@ class ShowerDataset(Dataset):
         elif self.mode == 'test':            
             stop_at = self._num_files_test
 
-        for file in sorted(glob.glob(self._file_dir + '*LARCV2HDF5.hdf5')): #'*.hdf5'):
+        for file in sorted(glob.glob(self._file_dir + '*.h*5')): #*LARCV2HDF5.hdf5')): #'*.hdf5'):
             self._file_list.append(file)
             if len(self._file_list) == stop_at:
                 break

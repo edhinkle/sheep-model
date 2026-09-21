@@ -27,7 +27,7 @@ default: &default
   save_checkpoint: !!bool True
   # data locations
   train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TRAIN/'
-  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/'
+  test_path: '/global/cfs/cdirs/dune/users/drielsma/sheep/nu-on-e/' # nue_noff_noshield/ #'/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/'
   val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/VALIDATION/'
   train_files: 1600
   val_files: 200
@@ -119,10 +119,11 @@ default: &default
   event_vertex_in_fv: !!bool True
   particle_start_in_fv: !!bool False
   energy_threshold: 0.200 # MeV
-  set_energy_threshold: !!bool True
+  set_energy_threshold: !!bool False
   #log train and val predictions
   log_train_preds: !!bool False
   log_val_preds: !!bool False
+  augment_samples: !!bool False
 
 # Variations on the default config for different training and evaluation scenarios
 mse_lin:

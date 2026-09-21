@@ -78,7 +78,7 @@ class Tester():
                 raise ValueError(f"Training directory {train_dir} does not exist. Please train the model before testing.")
         self.params['experiment_dir'] = os.path.abspath(exp_dir)
         self.params['train_dir'] = os.path.abspath(train_dir)
-        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_test_with_gaps.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
+        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_test_DATALIKE_NUonE.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
         self.params['checkpoint_path'] = os.path.join(train_dir, 'checkpoints/'+self.checkpoint_file)
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
