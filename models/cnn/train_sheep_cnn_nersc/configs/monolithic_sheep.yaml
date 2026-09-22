@@ -17,6 +17,7 @@ default: &default
   lr_epochs_high: 60
   lr_start_factor: 1.0
   lr_decay_gamma: 0.975
+  weight_decay: 0
   optimizer: 'Adam'
   max_epochs: 100
   batch_size: 3200
@@ -57,7 +58,7 @@ default: &default
   log_val_preds: !!bool False
   energy_scaled: 1000.0
   # Energy scaled to /1000 for training stability
-
+  augment_samples: !!bool True
 
 # Variations on the default config for different training and evaluation scenarios
 mse_lin:

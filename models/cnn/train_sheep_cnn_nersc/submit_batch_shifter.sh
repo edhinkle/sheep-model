@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --time=0:15:00
+#SBATCH --time=3:55:00
 #SBATCH --constraint=gpu
 #SBATCH --account=dune
 #SBATCH --qos=regular
@@ -14,7 +14,7 @@
 
 config_file=./configs/2x2_sheep.yaml
 config="l1_log"
-run_num="L1-LogEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs-TestTrainSpeedUp"
+run_num="L1-LogEnergyScale-500kSample-2x2Electrons-3200bs-1000vbs-WeightDecay-1e-4"
 #"WeightedMSE-LinearEnergyScale-50kSample-NDLArTest-HDF5-Test2"
 
 # this is the path to your local env for libs on top of the container

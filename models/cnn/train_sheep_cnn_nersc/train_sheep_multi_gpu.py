@@ -154,7 +154,7 @@ class Trainer():
 
         # set an optimizer and learning rate scheduler
         optimizer_fn = getattr(optim, self.params.optimizer)
-        self.optimizer = optimizer_fn(self.model.parameters(), lr=self.params.lr)
+        self.optimizer = optimizer_fn(self.model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay)
         self.schedulerConstantLR = lr_scheduler.ConstantLR(self.optimizer, factor=self.params.lr_start_factor, total_iters=self.params.lr_epochs_low)
         self.schedulerExponentialLR = lr_scheduler.ExponentialLR(self.optimizer, gamma=self.params.lr_decay_gamma)
         self.scheduler = self.schedulerConstantLR

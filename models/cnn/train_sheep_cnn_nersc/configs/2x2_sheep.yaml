@@ -17,8 +17,9 @@ default: &default
   lr_epochs_high: 60
   lr_start_factor: 1.0
   lr_decay_gamma: 0.975
+  weight_decay: 0.0001
   optimizer: 'Adam'
-  max_epochs: 5
+  max_epochs: 100
   batch_size: 3200
   valid_batch_size: 1000
   bn_momentum: 0.01
