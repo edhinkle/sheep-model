@@ -1121,10 +1121,10 @@ class TestedSheepNDLAr():
             minE_bins = np.linspace(self.minE.min(), self.minE.max(), int(round((self.minE.max() - self.minE.min()), 1) * 10) + 1)
             minE_bin_width = minE_bins[1] - minE_bins[0]
             hist_counts_minE, bin_edges_minE = np.histogram(self.minE, bins=minE_bins, density=False)
-            ax.hist(bin_edges_minE[:-1], bins=bin_edges_minE, weights=hist_counts_minE/num_events, label="Minimum Voxel Energy", alpha=0.5, edgecolor="none")
+            ax.hist(bin_edges_minE[:-1], bins=bin_edges_minE, weights=hist_counts_minE/num_events, label="Minimum Voxel Energy [MeV]", alpha=0.5, edgecolor="none")
             ax.legend(fontsize=11)
-            ax.set_ylabel(f"Fraction of Test Events / {minE_bin_width:.2f}")
-            ax.set_xlabel("Test Event Minimum Voxel Energy")
+            ax.set_ylabel(f"Fraction of Test Events / {minE_bin_width:.2f} [MeV]")
+            ax.set_xlabel("Test Event Minimum Voxel Energy [MeV]")
             ax=plt.gca()
             ax.text(-1.88, 0.267, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
             fig.tight_layout()
@@ -1137,10 +1137,10 @@ class TestedSheepNDLAr():
             maxE_bins = np.linspace(self.maxE.min(), self.maxE.max(), int(round((self.maxE.max() - self.maxE.min()), 1) * 10) + 1)
             maxE_bin_width = maxE_bins[1] - maxE_bins[0]
             hist_counts_maxE, bin_edges_maxE = np.histogram(self.maxE, bins=maxE_bins, density=False)
-            ax.hist(bin_edges_maxE[:-1], bins=bin_edges_maxE, weights=hist_counts_maxE/num_events, label="Maximum Voxel Energy", alpha=0.5, edgecolor="none")
+            ax.hist(bin_edges_maxE[:-1], bins=bin_edges_maxE, weights=hist_counts_maxE/num_events, label="Maximum Voxel Energy [MeV]", alpha=0.5, edgecolor="none")
             ax.legend(fontsize=11)
-            ax.set_ylabel(f"Fraction of Test Events / {maxE_bin_width:.2f}")
-            ax.set_xlabel("Test Event Maximum Voxel Energy")
+            ax.set_ylabel(f"Fraction of Test Events / {maxE_bin_width:.2f} [MeV]")
+            ax.set_xlabel("Test Event Maximum Voxel Energy [MeV]")
             ax=plt.gca()
             ax.text(-1.88, 0.267, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
             fig.tight_layout()
@@ -1156,16 +1156,92 @@ class TestedSheepNDLAr():
             avgE_bin_width = avgE_bins[1] - avgE_bins[0]
             hist_counts_meanE, bin_edges_meanE = np.histogram(self.meanE, bins=avgE_bins, density=False)
             hist_counts_medE, bin_edges_medE = np.histogram(self.medE, bins=avgE_bins, density=False)
-            ax.hist(bin_edges_meanE[:-1], bins=bin_edges_meanE, weights=hist_counts_meanE/num_events, label="Mean Voxel Energy", alpha=0.5, edgecolor="none")
-            ax.hist(bin_edges_medE[:-1], bins=bin_edges_medE, weights=hist_counts_medE/num_events, label="Median Voxel Energy", alpha=0.5, edgecolor="none")
+            ax.hist(bin_edges_meanE[:-1], bins=bin_edges_meanE, weights=hist_counts_meanE/num_events, label="Mean Voxel Energy [MeV]", alpha=0.5, edgecolor="none")
+            ax.hist(bin_edges_medE[:-1], bins=bin_edges_medE, weights=hist_counts_medE/num_events, label="Median Voxel Energy [MeV]", alpha=0.5, edgecolor="none")
             ax.legend(fontsize=11)
-            ax.set_ylabel(f"Fraction of Test Events / {avgE_bin_width:.2f}")
-            ax.set_xlabel("Test Event Average Voxel Energy")
+            ax.set_ylabel(f"Fraction of Test Events / {avgE_bin_width:.2f} [MeV]")
+            ax.set_xlabel("Test Event Average Voxel Energy [MeV]")
             ax=plt.gca()
             ax.text(-1.88, 0.267, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
             fig.tight_layout()
             output.savefig(fig)
             plt.close()
+
+            def plot_single_voxel_metric_by_energy_bin(vox_metric=self.minE, vox_metric_name="Minimum Voxel Energy"):
+    
+                self.num_events_by_ebin = []
+                ebin_centers = 0.5 * (self.ebins[:-1] + self.ebins[1:])
+                rbins = np.linspace(vox_metric.min(), vox_metric.max(), int(round((vox_metric.max() - vox_metric.min()), 1) * 10) + 1)
+                bin_width = rbins[1] - rbins[0]
+
+                fig, ax = plt.subplots(int(self.num_energy_bins/5),5, figsize=(30, int(6*(self.num_energy_bins/5))))#, sharex=True, sharey=True)
+                ax = ax.flatten()
+
+                for i in range(self.num_energy_bins):
+                    bin_mask = (self.labels > self.ebins[i]) & (self.labels <= self.ebins[i + 1])
+                    if np.sum(bin_mask) == 0:
+                        continue
+                    vox_metric_bin = vox_metric[bin_mask]
+                    num_events_per_energy_bin = len(vox_metric_bin)
+                    frac_events_per_energy_bin = (num_events_per_energy_bin/len(vox_metric))*100
+                    
+                    hist_counts_vox_metric, bin_edges_vox_metric = np.histogram(vox_metric_bin, bins=rbins, density=False)
+                    ax[i].hist(bin_edges_vox_metric[:-1], bins=bin_edges_vox_metric, weights=hist_counts_vox_metric/num_events_per_energy_bin, label=f'{vox_metric_name} [MeV]', alpha=0.5, edgecolor="none")
+                    ax[i].set_xlabel(f'{vox_metric_name} [MeV]', fontsize=16)
+                    ax[i].set_ylabel(f'Fraction of Test Events / {round(bin_width, 2)} [MeV]', fontsize=16)
+                    ax[i].legend(loc='upper right', fontsize=16)
+                    ax[i].tick_params(axis='both', which='major', labelsize=14)
+                    ax[i].text(0.63, 0.8, f"{self.ebins[i]:.0f}-{self.ebins[i+1]:.0f} MeV \n{frac_events_per_energy_bin:.2f}% of Events}", transform=ax[i].transAxes, fontsize=14, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', color='orange', alpha=0.2))
+                    ax[i].legend(loc='upper right', fontsize=16)
+                    self.num_events_by_ebin.append(num_events_per_energy_bin)
+
+                fig.suptitle(f'{vox_metric_name} by True Energy Bin for {self.version}', size=20)
+                fig.tight_layout()
+                output.savefig(fig)
+                self.num_events_by_ebin = np.array(self.num_events_by_ebin)
+                plt.close()
+            plot_single_voxel_metric_by_energy_bin(self.minE, "Minimum Voxel Energy")
+            plot_single_voxel_metric_by_energy_bin(self.maxE, "Maximum Voxel Energy")
+            plot_single_voxel_metric_by_energy_bin(self.numVox, "Number of Filled Voxels")
+            def plot_avg_voxel_metrics_by_energy_bin(vox_metric1=self.meanE, vox_metric_name1="Mean Voxel Energy", vox_metric2=self.medE, vox_metric_name2="Median Voxel Energy"):
+    
+                self.num_events_by_ebin = []
+                ebin_centers = 0.5 * (self.ebins[:-1] + self.ebins[1:])
+                vox_metric_min = min(vox_metric1.min(), vox_metric2.min())
+                vox_metric_max = min(vox_metric1.max(), vox_metric2.max())
+                rbins = np.linspace(vox_metric_min, vox_metric_max, int(round((vox_metric_max - vox_metric_min), 1) * 10) + 1)
+                bin_width = rbins[1] - rbins[0]
+
+                fig, ax = plt.subplots(int(self.num_energy_bins/5),5, figsize=(30, int(6*(self.num_energy_bins/5))))#, sharex=True, sharey=True)
+                ax = ax.flatten()
+
+                for i in range(self.num_energy_bins):
+                    bin_mask = (self.labels > self.ebins[i]) & (self.labels <= self.ebins[i + 1])
+                    if np.sum(bin_mask) == 0:
+                        continue
+                    vox_metric1_bin = vox_metric1[bin_mask]
+                    vox_metric2_bin = vox_metric2[bin_mask]
+                    num_events_per_energy_bin = len(vox_metric_bin)
+                    frac_events_per_energy_bin = (num_events_per_energy_bin/len(vox_metric))*100
+                    
+                    hist_counts_vox_metric1, bin_edges_vox_metric1 = np.histogram(vox_metric1_bin, bins=rbins, density=False)
+                    hist_counts_vox_metric2, bin_edges_vox_metric2 = np.histogram(vox_metric2_bin, bins=rbins, density=False)
+                    ax[i].hist(bin_edges_vox_metric1[:-1], bins=bin_edges_vox_metric1, weights=hist_counts_vox_metric1/num_events_per_energy_bin, label=f'{vox_metric_name1} [MeV]', alpha=0.5, edgecolor="none")
+                    ax[i].hist(bin_edges_vox_metric2[:-1], bins=bin_edges_vox_metric2, weights=hist_counts_vox_metric2/num_events_per_energy_bin, label=f'{vox_metric_name2} [MeV]', alpha=0.5, edgecolor="none")
+                    ax[i].set_xlabel("Average Voxel Energy [MeV]", fontsize=16)
+                    ax[i].set_ylabel(f'Fraction of Test Events / {round(bin_width, 2)} [MeV]', fontsize=16)
+                    ax[i].legend(loc='upper right', fontsize=16)
+                    ax[i].tick_params(axis='both', which='major', labelsize=14)
+                    ax[i].text(0.63, 0.8, f"{self.ebins[i]:.0f}-{self.ebins[i+1]:.0f} MeV \n{frac_events_per_energy_bin:.2f}% of Events}", transform=ax[i].transAxes, fontsize=14, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', color='orange', alpha=0.2))
+                    ax[i].legend(loc='upper right', fontsize=16)
+                    self.num_events_by_ebin.append(num_events_per_energy_bin)
+
+                fig.suptitle(f'Average Voxel Energy by True Energy Bin for {self.version}', size=20)
+                fig.tight_layout()
+                output.savefig(fig)
+                self.num_events_by_ebin = np.array(self.num_events_by_ebin)
+                plt.close()
+            plot_avg_voxel_metrics_by_energy_bin()
 
     def run(self):
         self.get_values_from_csv()
