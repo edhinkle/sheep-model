@@ -359,6 +359,13 @@ class ShowerDataset(Dataset):
             features = features[energy_mask]
             #print(f"Applied energy threshold of {self._energy_threshold} MeV. Number of voxels after thresholding: {len(coords)}")
 
+        # Compute metrics on filled voxels
+        min_voxel_E = np.min(features)
+        max_voxel_E = np.max(features)
+        mean_voxel_E = np.mean(features)
+        median_voxel_E = np.median(features)
+        num_voxels_filled = len(features)
+        
         #final_visible_energy = np.sum(features[:, 0])  # Sum of energies in MeV
         # Convert coords, features, labels, to PyTorch tensors
         coords = torch.from_numpy(coords).contiguous()  # Keep as int32 for voxel indices
@@ -381,6 +388,12 @@ class ShowerDataset(Dataset):
         start_pos_tensor = torch.tensor(start_pos, dtype=torch.float32)
         rot_mat_tensor = torch.tensor(rot_mat, dtype=torch.float32)
         idx_tensor = torch.tensor(idx, dtype=torch.int32)
+        min_voxel_E_tensor = torch.tensor(min_voxel_E, dtype=torch.float32)
+        max_voxel_E_tensor = torch.tensor(max_voxel_E, dtype=torch.float32)
+        mean_voxel_E_tensor = torch.tensor(mean_voxel_E, dtype=torch.float32)
+        median_voxel_E_tensor = torch.tensor(median_voxel_E, dtype=torch.float32)
+        num_voxels_filled_tensor = torch.tensor(num_voxels_filled, dtype=torch.int32)
+        
         #print("Start point:", start_pos_tensor)
         #print("Rotation matrix:", rot_mat_tensor)
         #print("True KE:", true_KE_initial_tensor)
@@ -391,7 +404,7 @@ class ShowerDataset(Dataset):
         #          | Augment event data={final_time-pre_augment_time:.3f}s")
 
 
-        return combined_data, true_KE_initial_tensor, ve_frac_tensor, mg_frac_tensor, oob_frac_tensor, start_pos_tensor, rot_mat_tensor, idx_tensor
+        return combined_data, true_KE_initial_tensor, ve_frac_tensor, mg_frac_tensor, oob_frac_tensor, start_pos_tensor, rot_mat_tensor, idx_tensor, min_voxel_E_tensor, max_voxel_E_tensor, mean_voxel_E_tensor, median_voxel_E_tensor, num_voxels_filled_tensor
 
 
     # Method to get file_idx, event_idx pair from global idx
