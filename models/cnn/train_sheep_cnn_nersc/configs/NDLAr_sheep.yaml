@@ -124,7 +124,7 @@ default: &default
   #log train and val predictions
   log_train_preds: !!bool False
   log_val_preds: !!bool False
-  augment_samples: !!bool False
+  augment_samples: !!bool True
 
 # Variations on the default config for different training and evaluation scenarios
 mse_lin:
