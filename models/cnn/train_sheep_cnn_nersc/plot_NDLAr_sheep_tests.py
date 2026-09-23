@@ -1242,6 +1242,79 @@ class TestedSheepNDLAr():
                 self.num_events_by_ebin = np.array(self.num_events_by_ebin)
                 plt.close()
             plot_avg_voxel_metrics_by_energy_bin()
+            def plot_single_voxel_metric_by_ve_frac_bin(vox_metric=self.minE, vox_metric_name="Minimum Voxel Energy"):
+    
+                rbins = np.linspace(vox_metric.min(), vox_metric.max(), int(round((vox_metric.max() - vox_metric.min()), 1) * 10) + 1)
+                bin_width = rbins[1] - rbins[0]
+                self.num_events_by_ve_frac_bin = []
+
+                fig, ax = plt.subplots(int(self.num_ve_frac_bins/5),5, figsize=(30, int(6*(self.num_ve_frac_bins/5))))#, sharex=True, sharey=True)
+                ax = ax.flatten()
+
+                for i in range(self.num_ve_frac_bins):
+                    bin_mask = (self.ve / self.labels > self.ve_frac_bins[i]) & (self.ve / self.labels <= self.ve_frac_bins[i + 1])
+                    if np.sum(bin_mask) == 0:
+                        continue
+                    vox_metric_bin = vox_metric[bin_mask]
+                    num_events_per_ve_frac_bin = len(vox_metric_bin)
+                    frac_events_per_ve_frac_bin = (num_events_per_ve_frac_bin/len(vox_metric))*100
+                    
+                    hist_counts_vox_metric, bin_edges_vox_metric = np.histogram(vox_metric_bin, bins=rbins, density=False)
+                    ax[i].hist(bin_edges_vox_metric[:-1], bins=bin_edges_vox_metric, weights=hist_counts_vox_metric/num_events_per_ve_frac_bin, label=f'{vox_metric_name} [MeV]', alpha=0.5, edgecolor="none")
+                    ax[i].set_xlabel(f'{vox_metric_name} [MeV]', fontsize=16)
+                    ax[i].set_ylabel(f'Fraction of Test Events / {round(bin_width, 2)} [MeV]', fontsize=16)
+                    ax[i].legend(loc='upper right', fontsize=16)
+                    ax[i].tick_params(axis='both', which='major', labelsize=14)
+                    ax[i].text(0.63, 0.8, f"{self.ve_frac_bins[i]:.0f}-{self.ve_frac_bins[i+1]:.0f} MeV \n{frac_events_per_ve_frac_bin:.2f}% of Events}", transform=ax[i].transAxes, fontsize=14, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', color='orange', alpha=0.2))
+                    ax[i].legend(loc='upper right', fontsize=16)
+                    self.num_events_by_ve_frac_bin.append(num_events_per_ve_frac_bin)
+
+                fig.suptitle(f'{vox_metric_name} by Visible Energy Fraction Bin for {self.version}', size=20)
+                fig.tight_layout()
+                output.savefig(fig)
+                self.num_events_by_ve_frac_bin = np.array(self.num_events_by_ve_frac_bin)
+                plt.close()
+            plot_single_voxel_metric_by_ve_frac_bin(self.minE, "Minimum Voxel Energy")
+            plot_single_voxel_metric_by_ve_frac_bin(self.maxE, "Maximum Voxel Energy")
+            plot_single_voxel_metric_by_ve_frac_bin(self.numVox, "Number of Filled Voxels")
+            def plot_avg_voxel_metrics_by_ve_frac_bin(vox_metric1=self.meanE, vox_metric_name1="Mean Voxel Energy", vox_metric2=self.medE, vox_metric_name2="Median Voxel Energy"):
+    
+                vox_metric_min = min(vox_metric1.min(), vox_metric2.min())
+                vox_metric_max = min(vox_metric1.max(), vox_metric2.max())
+                rbins = np.linspace(vox_metric_min, vox_metric_max, int(round((vox_metric_max - vox_metric_min), 1) * 10) + 1)
+                bin_width = rbins[1] - rbins[0]
+                self.num_events_by_ve_frac_bin = []
+
+                fig, ax = plt.subplots(int(self.num_ve_frac_bins/5),5, figsize=(30, int(6*(self.num_ve_frac_bins/5))))#, sharex=True, sharey=True)
+                ax = ax.flatten()
+
+                for i in range(self.num_ve_frac_bins):
+                    bin_mask = (self.ve / self.labels > self.ve_frac_bins[i]) & (self.ve / self.labels <= self.ve_frac_bins[i + 1])
+                    if np.sum(bin_mask) == 0:
+                        continue
+                    vox_metric1_bin = vox_metric1[bin_mask]
+                    vox_metric2_bin = vox_metric2[bin_mask]
+                    num_events_per_ve_frac_bin = len(vox_metric_bin)
+                    frac_events_per_ve_frac_bin = (num_events_per_ve_frac_bin/len(vox_metric))*100
+                    
+                    hist_counts_vox_metric1, bin_edges_vox_metric1 = np.histogram(vox_metric1_bin, bins=rbins, density=False)
+                    hist_counts_vox_metric2, bin_edges_vox_metric2 = np.histogram(vox_metric2_bin, bins=rbins, density=False)
+                    ax[i].hist(bin_edges_vox_metric1[:-1], bins=bin_edges_vox_metric1, weights=hist_counts_vox_metric1/num_events_per_ve_frac_bin, label=f'{vox_metric_name1} [MeV]', alpha=0.5, edgecolor="none")
+                    ax[i].hist(bin_edges_vox_metric2[:-1], bins=bin_edges_vox_metric2, weights=hist_counts_vox_metric2/num_events_per_ve_frac_bin, label=f'{vox_metric_name2} [MeV]', alpha=0.5, edgecolor="none")
+                    ax[i].set_xlabel("Average Voxel Energy [MeV]", fontsize=16)
+                    ax[i].set_ylabel(f'Fraction of Test Events / {round(bin_width, 2)} [MeV]', fontsize=16)
+                    ax[i].legend(loc='upper right', fontsize=16)
+                    ax[i].tick_params(axis='both', which='major', labelsize=14)
+                    ax[i].text(0.63, 0.8, f"{self.ve_frac_bins[i]:.0f}-{self.ve_frac_bins[i+1]:.0f} MeV \n{frac_events_per_ve_frac_bin:.2f}% of Events}", transform=ax[i].transAxes, fontsize=14, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', color='orange', alpha=0.2))
+                    ax[i].legend(loc='upper right', fontsize=16)
+                    self.num_events_by_ve_frac_bin.append(num_events_per_ve_frac_bin)
+
+                fig.suptitle(f'Average Voxel Energy by Visible Energy Fraction Bin for {self.version}', size=20)
+                fig.tight_layout()
+                output.savefig(fig)
+                self.num_events_by_ve_frac_bin = np.array(self.num_events_by_ve_frac_bin)
+                plt.close()
+            plot_avg_voxel_metrics_by_ve_frac_bin()
 
     def run(self):
         self.get_values_from_csv()
