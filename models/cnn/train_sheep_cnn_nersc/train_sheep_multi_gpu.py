@@ -328,7 +328,7 @@ class Trainer():
             #idxs = []
 
         end_of_last_step = time.time()
-        for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.train_data_loader):
+        for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx, minE, maxE, meanE, medE, numVox) in enumerate(self.train_data_loader):
             self.iters += 1
             #print("Inputs: ", inputs.size())
             inputs, targets = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True)
@@ -438,7 +438,7 @@ class Trainer():
             #idxs = []
 
         with torch.no_grad():
-            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.val_data_loader):
+            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx, minE, maxE, meanE, medE, numVox) in enumerate(self.val_data_loader):
                 inputs, targets = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True)
                 outputs = self.model(inputs)
                 loss = self.loss_func(outputs, targets)
