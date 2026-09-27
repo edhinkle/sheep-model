@@ -3,6 +3,7 @@
 from curses import meta
 
 import torch
+from torch.utils.data import Subset
 from torch.utils.data import DataLoader, Dataset, get_worker_info
 from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
@@ -41,7 +42,15 @@ def get_data_loader(params, data_location, distributed, train=True, test=False):
     print("Getting data loader for mode ", mode, " with data location ", data_location)
 
     dataset = ShowerDataset(params, data_location, mode=mode)
+
+    # Make sure point is in FV if not augmenting samples (for testing)
+    if dataset._ndlar_fv_cut == True and dataset._augment_samples == False:
+        print("Applying FV cut for unaugmented testing/validation samples.")
+        keep_indices = dataset._build_fv_subset()
+        dataset = Subset(dataset, keep_indices)
+        
     batch_size = int(params.local_batch_size if train else params.local_valid_batch_size if not test else params.local_test_batch_size)
+    #print("Batch size:", batch_size)
     # define a sampler for distributed training using DDP
     #if train == True:
     #    sampler = RandomSequenceBatchSampler(dataset=dataset, batch_size=batch_size, seed=params.random_seed, drop_last=True)
@@ -143,8 +152,13 @@ def shower_collate_fn(batch):
     start_pos_list = []
     rot_mat_list = []
     idx_list = []
+    minE_list = []
+    maxE_list = []
+    meanE_list = []
+    medE_list = []
+    numVox_list = []
 
-    for batch_idx, (data, label, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(batch):
+    for batch_idx, (data, label, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx, minE, maxE, meanE, medE, numVox) in enumerate(batch):
         # Set batch index
         batch_data = data.clone()
         #print("Batch data shape:", batch_data.shape)
@@ -159,6 +173,11 @@ def shower_collate_fn(batch):
         start_pos_list.append(start_pos)
         rot_mat_list.append(rot_mat)
         idx_list.append(idx)
+        minE_list.append(minE)
+        maxE_list.append(maxE)
+        meanE_list.append(meanE)
+        medE_list.append(medE)
+        numVox_list.append(numVox)
 
     # Concatenate all coordinates and features into single tensors
     batched_data = torch.cat(data_list, dim=0)
@@ -169,10 +188,17 @@ def shower_collate_fn(batch):
     batched_start_pos = torch.stack(start_pos_list, dim=0) # Shape (B, 3)
     batched_rot_mat = torch.stack(rot_mat_list, dim=0) # Shape (B, 3, 3)
     batched_idx = torch.stack(idx_list, dim=0).reshape(-1, 1) 
+    batched_minE = torch.stack(minE_list, dim=0).reshape(-1, 1) 
+    batched_maxE = torch.stack(maxE_list, dim=0).reshape(-1, 1) 
+    batched_meanE = torch.stack(meanE_list, dim=0).reshape(-1, 1) 
+    batched_medE = torch.stack(medE_list, dim=0).reshape(-1, 1) 
+    batched_numVox = torch.stack(numVox_list, dim=0).reshape(-1, 1) 
 
-    #print("Batched data:", batched_data)
+    #print("Batched data:", batched_idx)
+    #print("Batched labels:", batched_labels)
 
-    return batched_data, batched_labels, batched_ve_frac, batched_mg_frac, batched_oob_frac, batched_start_pos, batched_rot_mat, batched_idx
+    return batched_data, batched_labels, batched_ve_frac, batched_mg_frac, batched_oob_frac, batched_start_pos, batched_rot_mat, \
+           batched_idx, batched_minE, batched_maxE, batched_meanE, batched_medE, batched_numVox
 
     #return ShowerCustomBatch(batch)
 
@@ -196,9 +222,11 @@ class ShowerDataset(Dataset):
         self._num_files_val = params.val_files
         self._num_files_test = params.test_files
         self._set_dataset_file_list()  # Get list of files in dataset directory
+        #print("Number of files:", len(self._file_list))
         #self._larcv_dataset = LArCVDataset(file_keys=self._file_list, schema=params.schema, dtype="float32")
         #print("File list:",self._file_list)
         self._set_events_per_file()  # Get number of events per file + file indices
+        #print("Events per file:", self._events_per_file)
 
         # Photons vs. electrons
         self._photons_in_sample = params.photons_in_sample
@@ -292,15 +320,14 @@ class ShowerDataset(Dataset):
     def __getitem__(self, idx):
 
         file_idx, event_local_idx = self._decode_idx(idx)  # Decode the global index into file and event indices
-        
-        #print(f"Loading file: {h5_file_name}, File index: {file_idx}, Event local index: {event_local_idx}")  # Debugging line to check which file and event is being loaded
-        #print(f"Event global index: {idx}")  # Debugging line to check global index being loaded
-
         initial_time = time.time()
         h5_file_name = self._file_list[file_idx]
+        #print(f"Loading file: {h5_file_name}, File index: {file_idx}, Event local index: {event_local_idx}")  # Debugging line to check which file and event is being loaded
+        #print(f"Event global index: {idx}")  # Debugging line to check global index being loaded
         with h5py.File(h5_file_name, 'r') as h5_file:
             post_access_data_time = time.time()
             true_KE_initial = float(h5_file['ke_initial'][event_local_idx])  # Access the true KE initial for the event
+            #print(f"File index: {file_idx}, Event local index: {event_local_idx}, True KE Initial: {true_KE_initial}")
             try:
                 particle_start = np.array(h5_file['start_points'][event_local_idx])  # Access the start point for the event
             except:
@@ -787,6 +814,27 @@ class ShowerDataset(Dataset):
                     (point[2] < self._max_xyz[2]-self._ds_wall_fv_cut)
             return in_any_module_fv and in_fv
 
+    # Method to build subset of points in fv
+    def _build_fv_subset(self):
+
+        if self._augment_samples == True:
+            print("Augmentation is enabled. Not building FV subset.")
+            return None
+        
+        keep_indices = []
+
+        for file_idx, file_name in enumerate(self._file_list):
+            with h5py.File(file_name, "r") as f:
+                start_points = np.asarray(f["start_points"])
+                n_events = start_points.shape[0]
+
+                for event_local_idx in range(n_events):
+                    start_pos = start_points[event_local_idx]
+                    if self._is_point_in_fv(start_pos):
+                        global_idx = self._event_total_by_file[file_idx] + event_local_idx
+                        keep_indices.append(global_idx)
+
+        return keep_indices
 
     # Method to get list of files in dataset directory
     def _set_dataset_file_list(self):
@@ -805,7 +853,7 @@ class ShowerDataset(Dataset):
             self._file_list.append(file)
             if len(self._file_list) == stop_at:
                 break
-
+        
         if len(self._file_list) == 0:
             raise ValueError("No files found in dataset directory: {}".format(self._file_dir)) 
         

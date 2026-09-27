@@ -78,7 +78,7 @@ class Tester():
                 raise ValueError(f"Training directory {train_dir} does not exist. Please train the model before testing.")
         self.params['experiment_dir'] = os.path.abspath(exp_dir)
         self.params['train_dir'] = os.path.abspath(train_dir)
-        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_test_DATALIKE_NUonE.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
+        self.params['log_path'] = os.path.join(exp_dir, 'logs/{}_{}_{}_test_NUE100k_VoxelMetrics_FVOnly.csv'.format(self.run_num, self.config, self.checkpoint_file.split('.')[0]))
         self.params['checkpoint_path'] = os.path.join(train_dir, 'checkpoints/'+self.checkpoint_file)
         self.params['resuming'] = True if os.path.isfile(self.params.checkpoint_path) else False
 
@@ -145,8 +145,9 @@ class Tester():
         self.restore_checkpoint(self.params.checkpoint_path)
 
         # launch testing
-        self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx, self.minE, self.maxE, self.meanE, self.medE, self.numVox = self.test()
-        #print("Start positions:", self.start_positions)
+        self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx, self.minE, \
+            self.maxE, self.meanE, self.medE, self.numVox = self.test()
+        #print("Labels:", self.labels)
         if self.train_logE == True:
             self.labels = np.exp(self.labels)
             self.predictions = np.exp(self.predictions)
@@ -161,7 +162,8 @@ class Tester():
             if self.world_rank == 0:
                 with open(self.params['log_path'], 'a') as f:
                     writer = csv.writer(f)
-                    writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.minE[i], self.maxE[i], self.meanE[i], self.medE[i], self.numVox[i], self.start_positions[i], self.rotation_matrices[i]])
+                    writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], \
+                                     self.minE[i], self.maxE[i], self.meanE[i], self.medE[i], self.numVox[i], self.start_positions[i], self.rotation_matrices[i]])
         #self.plot_results()
 
 
@@ -199,6 +201,7 @@ class Tester():
                 VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
                 idx, minE, maxE, meanE, medE, numVox = idx.to(self.device), minE.to(self.device), maxE.to(self.device), meanE.to(self.device), medE.to(self.device), numVox.to(self.device)
                 outputs = self.model(inputs)
+                #print("Targets:", targets.detach().reshape(-1))
                 labels.append(targets.detach().reshape(-1))
                 preds.append(outputs.detach().reshape(-1))
                 ve_frac.append(VE_frac.detach().reshape(-1))
@@ -239,8 +242,8 @@ class Tester():
 
         return torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), \
                torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), \
-               torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy() \
-               torch.concat(minEs).cpu().numpy(), torch.concat(maxEs).cpu().numpy(), torch.concat(meanEs).cpu().numpy(), torch.concat(medEs).cpu().numpy() \
+               torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy(), \
+               torch.concat(minEs).cpu().numpy(), torch.concat(maxEs).cpu().numpy(), torch.concat(meanEs).cpu().numpy(), torch.concat(medEs).cpu().numpy(), \
                torch.concat(numVoxs).cpu().numpy()
 
 
