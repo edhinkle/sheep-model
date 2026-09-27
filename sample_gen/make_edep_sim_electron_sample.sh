@@ -75,7 +75,7 @@ EDEP_SEEDED_MACRO=${EDEP_MACRO}_${FILE_SEED}.mac
 LARCV_FILE=${baseFileName}.LARCV.root
 HDF5_FILE=${baseFileName}.LARCV2HDF5.hdf5
 
-if [[ $rndSeed -eq 0 ]]; then
+if [[ $rndSEED -eq 0 ]]; then
     echo "Random seed is 0, which is not allowed. Setting random seed to 10000000."
     rndSEED=10000000
 fi
