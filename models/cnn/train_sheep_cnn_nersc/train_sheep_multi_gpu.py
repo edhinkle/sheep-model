@@ -155,9 +155,15 @@ class Trainer():
         # set an optimizer and learning rate scheduler
         optimizer_fn = getattr(optim, self.params.optimizer)
         self.optimizer = optimizer_fn(self.model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay)
-        self.schedulerConstantLR = lr_scheduler.ConstantLR(self.optimizer, factor=self.params.lr_start_factor, total_iters=self.params.lr_epochs_low)
-        self.schedulerExponentialLR = lr_scheduler.ExponentialLR(self.optimizer, gamma=self.params.lr_decay_gamma)
-        self.scheduler = self.schedulerConstantLR
+        self.schedulerLinearLR = lr_scheduler.LinearLR(self.optimizer, start_factor=self.params.lr_start_factor, end_factor=1.0, total_iters=self.params.lr_epochs_low)
+        self.schedulerCosineAnnealingLR = lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.params.lr_epochs_high, eta_min=self.params.lr_min, last_epoch=self.params.lr_epochs_low)
+        self.scheduler = lr_scheduler.SequentialLR(self.optimizer,
+                                                   schedulers=[self.schedulerLinearLR, self.schedulerCosineAnnealingLR],
+                                                   milestones=[self.params.lr_epochs_low]
+                                                  )
+        #self.schedulerConstantLR = lr_scheduler.ConstantLR(self.optimizer, factor=self.params.lr_start_factor, total_iters=self.params.lr_epochs_low)
+        #self.schedulerExponentialLR = lr_scheduler.ExponentialLR(self.optimizer, gamma=self.params.lr_decay_gamma)
+        #self.scheduler = self.schedulerConstantLR
 
         # set loss functions
         if self.params.loss_fn == 'MSELoss':
@@ -266,7 +272,7 @@ class Trainer():
             # learning rate scheduler
             self.scheduler.step()
             for param_group in self.optimizer.param_groups:
-                print(param_group['lr'])
+                print("Learning rate: {}".format(param_group['lr']))
 
             # keep track of best model according to validation loss
             if self.logs['val_loss'] <= best_loss:

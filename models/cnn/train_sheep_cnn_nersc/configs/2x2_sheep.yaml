@@ -13,13 +13,14 @@ default: &default
   allow_bias: !!bool False
   # optimization
   lr: 0.0001
-  lr_epochs_low: 20
-  lr_epochs_high: 60
-  lr_start_factor: 1.0
+  lr_epochs_low: 40
+  lr_epochs_high: 300
+  lr_start_factor: 0.1
+  lr_min: 0.000001
   lr_decay_gamma: 0.975
-  weight_decay: 0.0001
-  optimizer: 'Adam'
-  max_epochs: 100
+  weight_decay: 0 #0.0001
+  optimizer: 'AdamW'
+  max_epochs: 200
   batch_size: 3200
   valid_batch_size: 1000
   bn_momentum: 0.01
@@ -53,8 +54,8 @@ default: &default
   ndlar_nue_profile: !!bool False
   nue_profile_file: "/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/nue_properties.csv"
   # photons vs. electrons
-  photons_in_sample: !!bool True
-  electrons_in_sample: !!bool False
+  photons_in_sample: !!bool False
+  electrons_in_sample: !!bool True
   event_vertex_in_fv: !!bool False #TODO: Fix so this can be used
   particle_start_in_fv: !!bool True
   energy_threshold: 0.200 # MeV
@@ -92,6 +93,24 @@ weighted_l1_lin:
   <<: *default
   loss_fn: 'WeightedL1Loss'
   train_logE: !!bool False
+
+l1_lin_wd1e-4:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.0001
+
+l1_lin_wd1e-5:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.00001
+
+l1_lin_wd1e-3:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.001
 
 l1_log:
   <<: *default
@@ -132,6 +151,18 @@ test_l1_lin:
   <<: *test
   loss_fn: 'L1Loss'
   train_logE: !!bool False
+
+test_l1_lin_wd1e-3:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.001
+
+test_l1_lin_wd1e-4:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.0001
 
 test_weighted_l1_lin:
   <<: *test
