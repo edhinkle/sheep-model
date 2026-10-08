@@ -12,7 +12,7 @@ import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
-from utils.custom_loss import WeightedMSELoss, WeightedL1Loss
+from utils.custom_loss import WeightedMSELoss, WeightedL1Loss, LogEandVEFracL1Loss
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -174,6 +174,8 @@ class Trainer():
             self.loss_func = torch.nn.L1Loss()
         elif self.params.loss_fn == 'WeightedL1Loss':
             self.loss_func = WeightedL1Loss()
+        elif self.params.loss_fn == 'LogEandVEFracL1Loss':
+            self.loss_func = LogEandVEFracL1Loss()
         elif self.params.loss_fn == 'HuberLoss':
             self.loss_func = torch.nn.HuberLoss()
 
@@ -334,11 +336,11 @@ class Trainer():
             #idxs = []
 
         end_of_last_step = time.time()
-        for i, (inputs, KE_init, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.train_data_loader):
+        for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.train_data_loader):
             self.iters += 1
             #print("Inputs: ", inputs.size())
-            targets = VE_frac
-            inputs, targets = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True)
+            #targets = VE_frac
+            inputs, targets, VE_frac = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True), VE_frac.to(self.device, non_blocking=True)
             #print("Active pixels:",inputs.shape[0])
             tr_start = time.time()
 
@@ -368,8 +370,11 @@ class Trainer():
                 #visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
                 #visible_energy.append(visible_energy_sums.detach())
 
+            if self.params.loss_fn == 'LogEandVEFracL1Loss':
+                loss = self.loss_func(outputs, targets, VE_frac)
+            else:
+                loss = self.loss_func(outputs, targets)
 
-            loss = self.loss_func(outputs, targets)
             #if self.log_to_screen:
             #    print("Train loss batch {}: {}".format(i, loss.item()))
             loss.backward()
@@ -445,11 +450,14 @@ class Trainer():
             #idxs = []
 
         with torch.no_grad():
-            for i, (inputs, KE_init, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.val_data_loader):
-                targets = VE_frac
-                inputs, targets = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True)
+            for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.val_data_loader):
+                #targets = VE_frac
+                inputs, targets, VE_frac = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True), VE_frac.to(self.device, non_blocking=True)
                 outputs = self.model(inputs)
-                loss = self.loss_func(outputs, targets)
+                if self.params.loss_fn == 'LogEandVEFracL1Loss':
+                    loss = self.loss_func(outputs, targets, VE_frac)
+                else:
+                    loss = self.loss_func(outputs, targets)
 
                 #if self.log_to_screen:
                 #    print("Val loss batch {}: {}".format(i, loss.item()))

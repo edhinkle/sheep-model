@@ -8,7 +8,7 @@ import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
-from utils.custom_loss import WeightedMSELoss, WeightedL1Loss
+from utils.custom_loss import WeightedMSELoss, WeightedL1Loss, LogEandVEFracL1Loss
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -134,6 +134,8 @@ class Tester():
             self.loss_func = torch.nn.L1Loss()
         elif self.params.loss_fn == 'WeightedL1Loss':
             self.loss_func = WeightedL1Loss()
+        elif self.params.loss_fn == 'LogEandVEFracL1Loss':
+            self.loss_func = LogEandVEFracL1Loss()
         elif self.params.loss_fn == 'HuberLoss':
             self.loss_func = torch.nn.HuberLoss()
 
@@ -144,13 +146,13 @@ class Tester():
         self.restore_checkpoint(self.params.checkpoint_path)
 
         # launch testing
-        self.labels, self.predictions, self.visible_energy, self.ke_init, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.test()
+        self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.test()
         #print("Start positions:", self.start_positions)
         if self.train_logE == True:
             self.labels = np.exp(self.labels)
             self.predictions = np.exp(self.predictions)
         else:
-            self.ve_frac = self.labels
+            #self.ve_frac = self.labels
             self.labels = (self.ke_init)*self.params.energy_scaled
             #print("Predictions:", self.predictions)
             self.predictions = (self.visible_energy/self.predictions)#*self.params.energy_scaled
@@ -179,7 +181,7 @@ class Tester():
         labels = []
         preds = []
         visible_energy = []
-        ke_init = []
+        ve_frac = []
         mg_frac = []
         oob_frac = []
         start_positions = []
@@ -191,14 +193,14 @@ class Tester():
 
         with torch.no_grad():
             for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx) in enumerate(self.test_data_loader):
-                KE_initial = targets
-                targets = VE_frac
+                #KE_initial = targets
+                #targets = VE_frac
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
-                KE_initial, MG_frac, OOB_frac, start_pos, rot_mat = KE_initial.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
+                VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
                 outputs = self.model(inputs)
                 labels.append(targets.detach().reshape(-1))
                 preds.append(outputs.detach().reshape(-1))
-                ke_init.append(KE_initial.detach().reshape(-1))
+                ve_frac.append(VE_frac.detach().reshape(-1))
                 mg_frac.append(MG_frac.detach().reshape(-1))
                 oob_frac.append(OOB_frac.detach().reshape(-1))
                 start_positions.append(start_pos.detach())
@@ -207,7 +209,10 @@ class Tester():
                 #print("Input type: ", type(inputs[0]))
                 #print("Start positions:", start_positions[-1])
 
-                loss = self.loss_func(outputs, targets)
+                if self.params.loss_fn == 'LogEandVEFracL1Loss':
+                    loss = self.loss_func(outputs, targets, VE_frac)
+                else:
+                    loss = self.loss_func(outputs, targets)
                 self.logs['test_loss'] += loss.detach() 
                 print("Batch {}: Loss = {:.4f}".format(i, loss.item()))
                 
@@ -230,7 +235,7 @@ class Tester():
         if self.log_to_screen:
             print("Test time: {:.2f}s".format(test_time))
 
-        return torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ke_init).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
+        return torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
 
     def plot_results(self):
 

@@ -18,7 +18,7 @@ default: &default
   lr_start_factor: 0.1
   lr_min: 0.000001
   lr_decay_gamma: 0.975
-  weight_decay: 0 #0.0001
+  weight_decay: 0.0001
   optimizer: 'AdamW'
   max_epochs: 200
   batch_size: 3200
@@ -117,6 +117,11 @@ l1_log:
   loss_fn: 'L1Loss'
   train_logE: !!bool True
 
+l1_log_with_VE_frac:
+  <<: *default
+  loss_fn: 'LogEandVEFracL1Loss'
+  train_logE: !!bool True
+
 huber_lin:
   <<: *default
   loss_fn: 'HuberLoss'
@@ -172,6 +177,11 @@ test_weighted_l1_lin:
 test_l1_log:
   <<: *test
   loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+test_l1_log_with_VE_frac:
+  <<: *test
+  loss_fn: 'LogEandVEFracL1Loss'
   train_logE: !!bool True
 
 test_huber_lin:
