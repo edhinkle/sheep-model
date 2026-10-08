@@ -260,24 +260,62 @@ class TestedSheep():
             self.pred_res_total_skew = skew(res_true_pred)
             self.pred_res_total_kurtosis = kurtosis(res_true_pred)
 
-            fig, ax = plt.subplots(figsize=(8, 6))
-            ax.hist(bin_edges_vis_true[:-1], bins=bin_edges_vis_true, weights=hist_counts_vis_true/num_events, label="(Visible - True) / True", alpha=0.5, edgecolor="none")
+            # --- Pred --- w/ t fit
+            df, loc, scale = t.fit(res_true_pred)# df=3, loc=0, scale=0.02)
+            x = np.linspace(res_true_pred.min(), res_true_pred.max(), 1000)
+            pdf = t.pdf(x, df, loc, scale)
+            pdf_bin_centers = t.pdf(bin_centers_true_pred, df, loc, scale)
+
+            fig, (ax_main, ax_res) = plt.subplots(2, 1, figsize=(8, 8), 
+                                        gridspec_kw={'height_ratios': [3, 1]}, 
+                                        sharex=True)
+            ax_main.hist(bin_edges_vis_true[:-1], bins=bin_edges_vis_true, weights=hist_counts_vis_true/num_events, label="(Visible - True) / True", alpha=0.5, edgecolor="none")
             #plt.plot(bin_centers_vis_true, gaussian(bin_centers_vis_true, *vis_true_params), color='blue', linestyle="--")
-            ax.hist(bin_edges_true_pred[:-1],bins=bin_edges_true_pred, weights=hist_counts_true_pred/num_events, label="(SHEEP - True) / True", alpha=0.5, edgecolor="none")
-            ax.plot(bin_centers_true_pred, gaussian(bin_centers_true_pred, *true_pred_params), color='sienna', linestyle="--")
-            ax.legend(fontsize=11)
-            ax.set_xlim(-2, 2.3)
-            ax.set_ylim(0, 0.28)
-            ax.set_ylabel(f"Fraction of Test Events / {bin_width:.2f}")
-            ax.set_xlabel("Test Event Energy Resolution")
-            ax=plt.gca()
-            ax.text(0.8, 0.23, r"$\mathbf{Mean:}$"+f"{true_pred_params[1]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{true_pred_params[2]:.2f}\n"+r"$\mathbf{Skew:}$"+f"{self.pred_res_total_skew:.2f}\n"+r"$\mathbf{Kurtosis:}$"+f"{self.pred_res_total_kurtosis:.2f}", fontsize=12, verticalalignment='top', color='sienna')
+            ax_main.hist(bin_edges_true_pred[:-1],bins=bin_edges_true_pred, weights=hist_counts_true_pred/num_events, label="(SHEEP - True) / True", alpha=0.5, edgecolor="none")
+            ax_main.plot(x, bin_width * pdf, color='sienna', linestyle="--", linewidth=1)
+            #ax.plot(bin_centers_true_pred, gaussian(bin_centers_true_pred, *true_pred_params), color='sienna', linestyle="--")
+            ax_main.legend(fontsize=11)
+            ax_main.set_xlim(-2, 2.3)
+            ax_main.set_ylim(0, 0.08)
+            ax_main.set_ylabel(f"Fraction of Test Events / {bin_width:.2f}")
+            ax_main.set_xlabel("Test Event Energy Resolution")
+            #ax_main=plt.gca()
+            ax_main.text(0.8, 0.066, r"$\mathbf{Mean:}$"+f"{loc:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{scale:.2f}\n"+r"$\mathbf{DoF:}$"+f"{df:.2f}\n", fontsize=12, verticalalignment='top', color='sienna')
+            #ax.text(0.8, 0.07, r"$\mathbf{Mean:}$"+f"{true_pred_params[1]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{true_pred_params[2]:.2f}\n"+r"$\mathbf{Skew:}$"+f"{self.pred_res_total_skew:.2f}\n"+r"$\mathbf{Kurtosis:}$"+f"{self.pred_res_total_kurtosis:.2f}", fontsize=12, verticalalignment='top', color='sienna')
             #ax.text(-1.88, 0.267, f"PRELIMINARY", fontsize=18, verticalalignment='top', color='black', alpha=0.35, fontweight='bold')
-            ax.text(-1.88, 0.267, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
+            ax_main.text(-1.88, 0.072, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
+            
+            # --- Residual plot ---
+            # Expected values from CB fits, evaluated at bin centers
+            expected_pred = bin_width * pdf_bin_centers#double_cb_pdf(bin_centers_true_pred, *dcb_params_pred) # note: reflected
+            #expected_vis  = bin_width * crystalball.pdf(bin_centers_vis_true, *cb_params_vis)
+            
+            observed_pred = hist_counts_true_pred / num_events
+            #observed_vis  = hist_counts_vis_true / num_events
+            
+            # Poisson errors on the normalized counts
+            errors_pred = np.sqrt(hist_counts_true_pred) / num_events
+            #errors_vis  = np.sqrt(hist_counts_vis_true)  / num_events
+            errors_pred[errors_pred == 0] = (1 / num_events) / num_events  # avoid division by zero
+            #errors_vis[errors_vis == 0]   = (1 / num_events) / num_events
+            
+            pulls_pred = (observed_pred - expected_pred) / errors_pred
+            #pulls_vis  = (observed_vis  - expected_vis)  / errors_vis
+            
+            ax_res.bar(bin_centers_true_pred, pulls_pred, width=bin_width, alpha=0.5, color='sienna', label='SHEEP')
+            #ax_res.bar(bin_centers_vis_true,  pulls_vis,  width=bin_width, alpha=0.5, color='blue',   label='Visible')
+            ax_res.axhline(0,  color='black', linewidth=0.8)
+            ax_res.axhline(+2, color='gray',  linewidth=0.8, linestyle=':')
+            ax_res.axhline(-2, color='gray',  linewidth=0.8, linestyle=':')
+            ax_res.set_ylabel("Pull (σ)")
+            ax_res.set_xlabel("Test Event Energy Resolution")
+            ax_res.set_ylim(-5, 5)
+            ax_res.set_xlim(-2, 2.3)
+            
             fig.tight_layout()
             output.savefig(fig)
-            self.pred_total_res_gauss_fit_mean = true_pred_params[1]
-            self.pred_total_res_gauss_fit_std = true_pred_params[2]
+            self.pred_total_res_gauss_fit_mean = loc#true_pred_params[1]
+            self.pred_total_res_gauss_fit_std = scale#true_pred_params[2]
             plt.close()
 
             ### OOB Frac vs. MG Frac by visible energy fraction bin
