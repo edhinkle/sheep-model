@@ -18,13 +18,16 @@ import argparse
 import csv
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.axes import Axes
-from scipy.stats import linregress, skew, kurtosis, norm, crystalball, t
+from scipy.stats import linregress, skew, kurtosis, norm, crystalball, t, mode
 from scipy.optimize import curve_fit, minimize, Bounds, differential_evolution
 from mpl_toolkits.mplot3d.axes3d import Axes
 
 
 def gaussian(x, amplitude, mean, std_dev):
     return amplitude * np.exp(-((x - mean) ** 2) / (2 * std_dev ** 2))
+
+def linear(x, m, b):
+    return m*x+b
 
 
 class TestedSheep():
@@ -53,6 +56,7 @@ class TestedSheep():
         ve_frac = []
         mg_frac = []
         oob_frac = []
+        thresh_frac = []
         minE = []
         maxE = []
         meanE = []
@@ -70,6 +74,7 @@ class TestedSheep():
                 ve_frac.append(float(row['ve_frac']))
                 mg_frac.append(float(row['mg_frac']))
                 oob_frac.append(float(row['oob_frac']))
+                thresh_frac.append(1-(float(row['ve_frac'])+float(row['mg_frac'])+float(row['oob_frac'])))
                 minE.append(float(row['minVoxE']))
                 maxE.append(float(row['maxVoxE']))
                 meanE.append(float(row['meanVoxE']))
@@ -84,6 +89,7 @@ class TestedSheep():
         self.ve_frac = np.array(ve_frac)
         self.mg_frac = np.array(mg_frac)
         self.oob_frac = np.array(oob_frac)
+        self.thresh_frac = np.array(thresh_frac)
         self.minE = np.array(minE)
         self.maxE = np.array(maxE)
         self.meanE = np.array(meanE)
@@ -269,24 +275,62 @@ class TestedSheep():
             self.pred_res_total_skew = skew(res_true_pred)
             self.pred_res_total_kurtosis = kurtosis(res_true_pred)
 
-            fig, ax = plt.subplots(figsize=(8, 6))
-            ax.hist(bin_edges_vis_true[:-1], bins=bin_edges_vis_true, weights=hist_counts_vis_true/num_events, label="(Visible - True) / True", alpha=0.5, edgecolor="none")
+            # --- Pred --- w/ t fit
+            df, loc, scale = t.fit(res_true_pred)# df=3, loc=0, scale=0.02)
+            x = np.linspace(res_true_pred.min(), res_true_pred.max(), 1000)
+            pdf = t.pdf(x, df, loc, scale)
+            pdf_bin_centers = t.pdf(bin_centers_true_pred, df, loc, scale)
+
+            fig, (ax_main, ax_res) = plt.subplots(2, 1, figsize=(8, 8), 
+                                        gridspec_kw={'height_ratios': [3, 1]}, 
+                                        sharex=True)
+            ax_main.hist(bin_edges_vis_true[:-1], bins=bin_edges_vis_true, weights=hist_counts_vis_true/num_events, label="(Visible - True) / True", alpha=0.5, edgecolor="none")
             #plt.plot(bin_centers_vis_true, gaussian(bin_centers_vis_true, *vis_true_params), color='blue', linestyle="--")
-            ax.hist(bin_edges_true_pred[:-1],bins=bin_edges_true_pred, weights=hist_counts_true_pred/num_events, label="(SHEEP - True) / True", alpha=0.5, edgecolor="none")
-            ax.plot(bin_centers_true_pred, gaussian(bin_centers_true_pred, *true_pred_params), color='sienna', linestyle="--")
-            ax.legend(fontsize=11)
-            ax.set_xlim(-2, 2.3)
-            ax.set_ylim(0, 0.28)
-            ax.set_ylabel(f"Fraction of Test Events / {bin_width:.2f}")
-            ax.set_xlabel("Test Event Energy Resolution")
-            ax=plt.gca()
-            ax.text(0.8, 0.23, r"$\mathbf{Mean:}$"+f"{true_pred_params[1]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{true_pred_params[2]:.2f}\n"+r"$\mathbf{Skew:}$"+f"{self.pred_res_total_skew:.2f}\n"+r"$\mathbf{Kurtosis:}$"+f"{self.pred_res_total_kurtosis:.2f}", fontsize=12, verticalalignment='top', color='sienna')
+            ax_main.hist(bin_edges_true_pred[:-1],bins=bin_edges_true_pred, weights=hist_counts_true_pred/num_events, label="(SHEEP - True) / True", alpha=0.5, edgecolor="none")
+            ax_main.plot(x, bin_width * pdf, color='sienna', linestyle="--", linewidth=1)
+            #ax.plot(bin_centers_true_pred, gaussian(bin_centers_true_pred, *true_pred_params), color='sienna', linestyle="--")
+            ax_main.legend(fontsize=11)
+            ax_main.set_xlim(-2, 2.3)
+            ax_main.set_ylim(0, 0.08)
+            ax_main.set_ylabel(f"Fraction of Test Events / {bin_width:.2f}")
+            ax_main.set_xlabel("Test Event Energy Resolution")
+            #ax_main=plt.gca()
+            ax_main.text(0.8, 0.066, r"$\mathbf{Mean:}$"+f"{loc:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{scale:.2f}\n"+r"$\mathbf{DoF:}$"+f"{df:.2f}\n", fontsize=12, verticalalignment='top', color='sienna')
+            #ax.text(0.8, 0.07, r"$\mathbf{Mean:}$"+f"{true_pred_params[1]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{true_pred_params[2]:.2f}\n"+r"$\mathbf{Skew:}$"+f"{self.pred_res_total_skew:.2f}\n"+r"$\mathbf{Kurtosis:}$"+f"{self.pred_res_total_kurtosis:.2f}", fontsize=12, verticalalignment='top', color='sienna')
             #ax.text(-1.88, 0.267, f"PRELIMINARY", fontsize=18, verticalalignment='top', color='black', alpha=0.35, fontweight='bold')
-            ax.text(-1.88, 0.267, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
+            ax_main.text(-1.88, 0.072, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
+            
+            # --- Residual plot ---
+            # Expected values from CB fits, evaluated at bin centers
+            expected_pred = bin_width * pdf_bin_centers#double_cb_pdf(bin_centers_true_pred, *dcb_params_pred) # note: reflected
+            #expected_vis  = bin_width * crystalball.pdf(bin_centers_vis_true, *cb_params_vis)
+            
+            observed_pred = hist_counts_true_pred / num_events
+            #observed_vis  = hist_counts_vis_true / num_events
+            
+            # Poisson errors on the normalized counts
+            errors_pred = np.sqrt(hist_counts_true_pred) / num_events
+            #errors_vis  = np.sqrt(hist_counts_vis_true)  / num_events
+            errors_pred[errors_pred == 0] = (1 / num_events) / num_events  # avoid division by zero
+            #errors_vis[errors_vis == 0]   = (1 / num_events) / num_events
+            
+            pulls_pred = (observed_pred - expected_pred) / errors_pred
+            #pulls_vis  = (observed_vis  - expected_vis)  / errors_vis
+            
+            ax_res.bar(bin_centers_true_pred, pulls_pred, width=bin_width, alpha=0.5, color='sienna', label='SHEEP')
+            #ax_res.bar(bin_centers_vis_true,  pulls_vis,  width=bin_width, alpha=0.5, color='blue',   label='Visible')
+            ax_res.axhline(0,  color='black', linewidth=0.8)
+            ax_res.axhline(+2, color='gray',  linewidth=0.8, linestyle=':')
+            ax_res.axhline(-2, color='gray',  linewidth=0.8, linestyle=':')
+            ax_res.set_ylabel("Pull (σ)")
+            ax_res.set_xlabel("Test Event Energy Resolution")
+            ax_res.set_ylim(-5, 5)
+            ax_res.set_xlim(-2, 2.3)
+            
             fig.tight_layout()
             output.savefig(fig)
-            self.pred_total_res_gauss_fit_mean = true_pred_params[1]
-            self.pred_total_res_gauss_fit_std = true_pred_params[2]
+            self.pred_total_res_gauss_fit_mean = loc#true_pred_params[1]
+            self.pred_total_res_gauss_fit_std = scale#true_pred_params[2]
             plt.close()
 
             ### OOB Frac vs. MG Frac by visible energy fraction bin
@@ -341,6 +385,56 @@ class TestedSheep():
             fig.suptitle(f'{self.version} Uncontained Missing Energy by True Event Energy', size=14)
             output.savefig(fig)
             plt.close()
+
+            ### Thresholded Energy by Energy 
+            fig, ax = plt.subplots(figsize=(8,6))
+            h = plt.hist2d(self.labels,self.thresh_frac,bins=(self.ebins,self.missing_frac_bins),cmap='magma_r',cmin=1)
+            im = h[3]
+            plt.xlabel("True Event Energy [MeV]")
+            plt.ylabel(f"Below Threshold [def: 200 keV]\n Energy Fraction")
+            cbar = fig.colorbar(im, ax=ax,orientation='vertical', fraction=0.02, pad=0.02)
+            cbar.set_label('Events', fontsize=12)
+            fig.suptitle(f'{self.version} Below Threshold Energy \nby True Event Energy', size=14)
+            output.savefig(fig)
+            plt.close()    
+
+            ### Thresholded Energy by Energy -- more granular
+            self.missing_frac_bins_granular = np.linspace(0, 0.6, 60 + 1)
+            self.ebins_granular = np.linspace(0, 2000, 40 + 1)
+            self.ebins_granular_centers = (self.ebins_granular[1:]+self.ebins_granular[:-1])/2
+            thresh_frac_means = []
+            thresh_frac_modes = []
+            thresh_frac_std = []
+            for b in range(len(self.ebins_granular_centers)):
+                bin_mask = (self.labels > self.ebins_granular[b]) & (self.labels <= self.ebins_granular[b + 1])
+                if np.sum(bin_mask) == 0:
+                    continue
+                thresh_frac_bin = self.thresh_frac[bin_mask]
+                thresh_frac_means.append(np.mean(thresh_frac_bin))
+                thresh_frac_modes.append(mode(np.array(thresh_frac_bin)).mode)
+                thresh_frac_std.append(np.std(thresh_frac_bin))
+            print("EBin centers:", self.ebins_granular_centers)
+            print("Means:", thresh_frac_means)
+            print("Modes length:", np.size(thresh_frac_modes))
+            print(thresh_frac_modes)
+            fig, ax = plt.subplots(figsize=(8,6))
+            h = plt.hist2d(self.labels,self.thresh_frac,bins=(self.ebins_granular,self.missing_frac_bins_granular),cmap='magma_r',cmin=1)
+            im = h[3]
+            ax.scatter(self.ebins_granular_centers, np.array(thresh_frac_modes), color='yellow', label='Mode')
+            plt.errorbar(self.ebins_granular_centers, np.array(thresh_frac_means), yerr=np.array(thresh_frac_std), marker='o', markersize=3, capsize=2, color='skyblue', linestyle='None', label='Mean +/- Std')
+            popt, pcov = curve_fit(linear, self.ebins_granular_centers, np.array(thresh_frac_means), sigma=np.array(thresh_frac_std))
+            m_opt, c_opt = popt
+            m_err, c_err = np.sqrt(np.diagonal(pcov))
+            fitted_line = linear(self.ebins_granular_centers, m_opt, c_opt)
+            plt.plot(self.ebins_granular_centers, fitted_line, color='blue', label=f'Linear Best Fit, m={m_opt:.6f}, c={c_opt:.6f}', alpha=0.9, linestyle='--', linewidth=2)
+            plt.xlabel("True Event Energy [MeV]")
+            plt.ylabel(f"Below Threshold [def: 200 keV]\n Energy Fraction")
+            cbar = fig.colorbar(im, ax=ax,orientation='vertical', fraction=0.02, pad=0.02)
+            cbar.set_label('Events', fontsize=12)
+            fig.suptitle(f'{self.version} Below Threshold Energy \nby True Event Energy', size=14)
+            plt.legend()
+            output.savefig(fig)
+            plt.close()   
 
 
 

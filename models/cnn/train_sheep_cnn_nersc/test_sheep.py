@@ -8,7 +8,7 @@ import numpy as np
 sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
-from utils.custom_loss import WeightedMSELoss, WeightedL1Loss
+from utils.custom_loss import WeightedMSELoss, WeightedL1Loss, LogEandVEFracL1Loss
 import yaml
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -135,6 +135,8 @@ class Tester():
             self.loss_func = torch.nn.L1Loss()
         elif self.params.loss_fn == 'WeightedL1Loss':
             self.loss_func = WeightedL1Loss()
+        elif self.params.loss_fn == 'LogEandVEFracL1Loss':
+            self.loss_func = LogEandVEFracL1Loss()
         elif self.params.loss_fn == 'HuberLoss':
             self.loss_func = torch.nn.HuberLoss()
 
@@ -152,8 +154,10 @@ class Tester():
             self.labels = np.exp(self.labels)
             self.predictions = np.exp(self.predictions)
         else:
-            self.labels = self.labels*self.params.energy_scaled
-            self.predictions = self.predictions*self.params.energy_scaled
+            #self.ve_frac = self.labels
+            self.labels = (self.ke_init)*self.params.energy_scaled
+            #print("Predictions:", self.predictions)
+            self.predictions = (self.visible_energy/self.predictions)#*self.params.energy_scaled
 
        #if dist.is_initialized():
         #    dist.barrier()  # <-- align all ranks following training on one epoch
@@ -218,7 +222,10 @@ class Tester():
                 #print("Input type: ", type(inputs[0]))
                 #print("Start positions:", start_positions[-1])
 
-                loss = self.loss_func(outputs, targets)
+                if self.params.loss_fn == 'LogEandVEFracL1Loss':
+                    loss = self.loss_func(outputs, targets, VE_frac)
+                else:
+                    loss = self.loss_func(outputs, targets)
                 self.logs['test_loss'] += loss.detach() 
                 print("Batch {}: Loss = {:.4f}".format(i, loss.item()))
                 
@@ -229,7 +236,8 @@ class Tester():
                 num_batches = int(batch_ids.max().item()) + 1
                 visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
                 visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
-                visible_energy.append(visible_energy_sums.detach())
+                visible_energy.append(visible_energy_sums.detach().reshape(-1))
+                #print("Visible energy:", visible_energy)
 
                 pbar.update(1)
 

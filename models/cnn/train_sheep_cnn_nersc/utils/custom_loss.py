@@ -172,3 +172,101 @@ class WeightedL1Loss(_Loss):
         else:  # 'none'
             return weighted_l1
 
+
+# Used WeightedL1Loss as a template for creating custom loss function 
+class LogEandVEFracL1Loss(_Loss):
+    r"""Creates a criterion that measures the L1 loss between
+    each element in the input :math:`x` and target :math:`y`
+    where the input and target are log(E), with an additional 
+    term based on L1 loss between the visible energy fraction
+    with regards to the input and target.
+
+    The unreduced (i.e. with :attr:`reduction` set to ``'none'``) loss can be described as:
+
+    .. math::
+        \ell(x, y) = L = \{l_1,\dots,l_N\}^\top, \quad
+        l_n = \left| x_n - y_n \right| + \left| \frac{E_{vis}}{e^{x_n}} 
+        - \frac{E_{vis}}{e^{y_n}} \right|,
+
+    where :math:`N` is the batch size and :math:`E_{vis}` is the 
+    sum of all energy deposits in the original image. If :attr:`reduction` is not ``'none'``
+    (default ``'mean'``), then:
+
+    .. math::
+        \ell(x, y) =
+        \begin{cases}
+            \operatorname{mean}(L), &  \text{if reduction} = \text{`mean';}\\
+            \operatorname{sum}(L),  &  \text{if reduction} = \text{`sum'.}
+        \end{cases}
+
+    :math:`x` and :math:`y` are theoretically tensors of arbitrary shapes with a total
+    of :math:`N` elements each, but in practice they are expected to be of shape (batch_size, 1)
+
+    The mean operation still operates over all the elements, and divides by :math:`N`.
+
+    The division by :math:`N` can be avoided if one sets ``reduction = 'sum'``.
+
+    Args:
+        size_average (bool, optional): Deprecated (see :attr:`reduction`). By default,
+            the losses are averaged over each loss element in the batch. Note that for
+            some losses, there are multiple elements per sample. If the field :attr:`size_average`
+            is set to ``False``, the losses are instead summed for each minibatch. Ignored
+            when :attr:`reduce` is ``False``. Default: ``True``
+        reduce (bool, optional): Deprecated (see :attr:`reduction`). By default, the
+            losses are averaged or summed over observations for each minibatch depending
+            on :attr:`size_average`. When :attr:`reduce` is ``False``, returns a loss per
+            batch element instead and ignores :attr:`size_average`. Default: ``True``
+        reduction (str, optional): Specifies the reduction to apply to the output:
+            ``'none'`` | ``'mean'`` | ``'sum'``. ``'none'``: no reduction will be applied,
+            ``'mean'``: the sum of the output will be divided by the number of
+            elements in the output, ``'sum'``: the output will be summed. Note: :attr:`size_average`
+            and :attr:`reduce` are in the process of being deprecated, and in the meantime,
+            specifying either of those two args will override :attr:`reduction`. Default: ``'mean'``
+
+    Shape:
+        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+        - Target: :math:`(*)`, same shape as the input.
+
+    Examples:
+
+        >>> loss = nn.L1Loss()
+        >>> input = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.randn(3, 5)
+        >>> output = loss(input, target)
+        >>> output.backward()
+    """
+
+    __constants__ = ["reduction"]
+
+    def forward(self, input: Tensor, target: Tensor, VE_frac: Tensor) -> Tensor:
+        """
+        Runs the forward pass.
+        """
+        
+        print("Shape of input: ", input.shape)
+        print("Input: ", input[:5])
+        print("Shape of target: ", target.shape)
+        print("Target: ", target[:5])
+        print("Shape of VE_frac: ", VE_frac.shape)
+        print("VE_frac: ", VE_frac[:5])
+
+        l1_log = F.l1_loss(input, target, reduction='none')  # Get unreduced loss
+        print("L1 log loss: ", l1_log[:5])
+        print("Shape L1 log loss: ", l1_log.shape)
+        ve_frac_input = VE_frac * (torch.exp(target) / torch.exp(input))
+        print("VE_frac_input: ", ve_frac_input[:5])
+        print("Shape VE_frac_input: ", ve_frac_input.shape)
+        l1_ve_frac = F.l1_loss(ve_frac_input, VE_frac, reduction='none')  # Get unreduced loss
+        print("L1 VE frac loss: ", l1_ve_frac[:5])
+        print("Shape L1 VE frac loss: ", l1_ve_frac.shape)
+        l1_total = l1_log + l1_ve_frac
+        print("L1 total loss: ", l1_total[:5])
+        print("Shape L1 total loss: ", l1_total.shape)
+
+        if self.reduction == 'mean':
+            return l1_total.mean()
+        elif self.reduction == 'sum':
+            return l1_total.sum()
+        else:  # 'none'
+            return l1_total
+
