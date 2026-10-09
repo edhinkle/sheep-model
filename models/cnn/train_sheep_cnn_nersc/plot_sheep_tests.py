@@ -57,6 +57,11 @@ class TestedSheep():
         mg_frac = []
         oob_frac = []
         thresh_frac = []
+        minE = []
+        maxE = []
+        meanE = []
+        medE = []
+        numVox = []
         start_position = []
         rotation_matrix = []
         with open(self.csv_file, 'r') as f:
@@ -70,6 +75,11 @@ class TestedSheep():
                 mg_frac.append(float(row['mg_frac']))
                 oob_frac.append(float(row['oob_frac']))
                 thresh_frac.append(1-(float(row['ve_frac'])+float(row['mg_frac'])+float(row['oob_frac'])))
+                minE.append(float(row['minVoxE']))
+                maxE.append(float(row['maxVoxE']))
+                meanE.append(float(row['meanVoxE']))
+                medE.append(float(row['medianVoxE']))
+                numVox.append(float(row['numFilledVoxels']))
                 start_position.append(str(row['start_position']))
                 rotation_matrix.append(str(row['rotation_matrix']))
 
@@ -80,6 +90,11 @@ class TestedSheep():
         self.mg_frac = np.array(mg_frac)
         self.oob_frac = np.array(oob_frac)
         self.thresh_frac = np.array(thresh_frac)
+        self.minE = np.array(minE)
+        self.maxE = np.array(maxE)
+        self.meanE = np.array(meanE)
+        self.medE = np.array(medE)
+        self.numVox = np.array(numVox)
         self.start_position = np.array([np.fromstring(s.strip('[]'), sep=' ') for s in start_position])
         self.rotation_matrix = np.array([
             np.fromstring(r.replace('\n', ' ').replace('[', '').replace(']', ''), sep=' ').reshape(3, 3)

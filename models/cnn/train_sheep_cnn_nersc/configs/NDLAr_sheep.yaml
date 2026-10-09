@@ -28,7 +28,7 @@ default: &default
   save_checkpoint: !!bool True
   # data locations
   train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TRAIN/'
-  test_path: '/global/cfs/cdirs/dune/users/drielsma/sheep/nu-on-e/' # nue_noff_noshield/ #'/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/'
+  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/' #'/global/cfs/cdirs/dune/users/drielsma/sheep/nu-on-e/' #nue_noff_noshield/' #
   val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/VALIDATION/'
   train_files: 1600
   val_files: 200

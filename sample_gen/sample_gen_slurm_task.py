@@ -11,12 +11,13 @@ SLURM_NODEID = int(os.environ['SLURM_NODEID'])
 SLURM_LOCALID = int(os.environ['SLURM_LOCALID']) # the local task ID on the node
 GLOBAL_TASK_ID = SLURM_NODEID * SLURM_NTASKS_PER_NODE + SLURM_LOCALID
 
-nfiles = 840
+nfiles = 1680
 nevents = 50
 steps="all"
-sample_name = "electron_NDLAr_10MeVto15GeV_1008TEST"
-OUTDIR="/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES"
-#sample_name = "photon_2x2_10MeVto2GeV_100k"
+#sample_name = "electron_2x2_10MeVto2GeV_100k" #"electron_NDLAr_10MeVto15GeV_1008TEST"
+OUTDIR="/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/2x2_PHOTON_SAMPLES"
+EDEP_MACRO="photon_sim_2x2" #NDLAr"
+sample_name = "photon_2x2_10MeVto2GeV_500k"
 
 
 def main():
@@ -39,7 +40,7 @@ def main():
             print(f"[skip] {final_hdf5}")
             continue
 
-        subprocess.run([f'./run_make_electron_sample.sh', sample_name, OUTDIR, str(nevents), str(idx), steps])
+        subprocess.run([f'./run_make_photon_sample.sh', sample_name, OUTDIR, str(nevents), str(idx), steps, EDEP_MACRO])
         #subprocess.run([f'./run_make_electron_sample.sh', 'electron_2x2_10MeVto2GeV_100k', str(nevents), str(idx), steps])
 
 
