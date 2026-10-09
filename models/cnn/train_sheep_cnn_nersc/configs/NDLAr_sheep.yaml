@@ -13,13 +13,14 @@ default: &default
   allow_bias: !!bool False
   # optimization
   lr: 0.0001
-  lr_epochs_low: 20
-  lr_epochs_high: 60
-  lr_start_factor: 1.0
+  lr_epochs_low: 40
+  lr_epochs_high: 300
+  lr_start_factor: 0.1
+  lr_min: 0.000001
   lr_decay_gamma: 0.975
-  weight_decay: 0
-  optimizer: 'Adam'
-  max_epochs: 20
+  weight_decay: 0.0001
+  optimizer: 'AdamW'
+  max_epochs: 200
   batch_size: 256
   valid_batch_size: 256
   bn_momentum: 0.01
@@ -117,13 +118,15 @@ default: &default
   # photons vs. electrons
   photons_in_sample: !!bool False
   electrons_in_sample: !!bool True
-  event_vertex_in_fv: !!bool True
-  particle_start_in_fv: !!bool False
+  event_vertex_in_fv: !!bool False #TODO: Fix so this can be used
+  particle_start_in_fv: !!bool True
   energy_threshold: 0.200 # MeV
   set_energy_threshold: !!bool False
   #log train and val predictions
   log_train_preds: !!bool False
   log_val_preds: !!bool False
+  energy_scaled: 1000.0
+  # Energy scaled to /1000 for training stability
   augment_samples: !!bool True
 
 # Variations on the default config for different training and evaluation scenarios
@@ -152,9 +155,32 @@ weighted_l1_lin:
   loss_fn: 'WeightedL1Loss'
   train_logE: !!bool False
 
+l1_lin_wd1e-4:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.0001
+
+l1_lin_wd1e-5:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.00001
+
+l1_lin_wd1e-3:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.001
+
 l1_log:
   <<: *default
   loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+l1_log_with_VE_frac:
+  <<: *default
+  loss_fn: 'LogEandVEFracL1Loss'
   train_logE: !!bool True
 
 huber_lin:
@@ -194,6 +220,24 @@ test_l1_lin:
   loss_fn: 'L1Loss'
   train_logE: !!bool False
 
+test_l1_lin_wd1e-3:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.001
+
+test_l1_lin_wd1e-4:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.0001
+
+test_l1_lin_wd1e-5:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.00001
+
 test_weighted_l1_lin:
   <<: *test
   loss_fn: 'WeightedL1Loss'
@@ -202,6 +246,11 @@ test_weighted_l1_lin:
 test_l1_log:
   <<: *test
   loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+test_l1_log_with_VE_frac:
+  <<: *test
+  loss_fn: 'LogEandVEFracL1Loss'
   train_logE: !!bool True
 
 test_huber_lin:

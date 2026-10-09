@@ -169,6 +169,12 @@ test_l1_lin_wd1e-4:
   train_logE: !!bool False
   weight_decay: 0.0001
 
+test_l1_lin_wd1e-5:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.00001
+
 test_weighted_l1_lin:
   <<: *test
   loss_fn: 'WeightedL1Loss'
