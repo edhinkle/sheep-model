@@ -28,28 +28,38 @@ class Trainer():
     """ trainer class """
     def __init__(self, params, args):
         ''' init vars for distributed training (ddp) and logging'''
+        print("Initializing trainer...")
         self.results_dir = args.results_dir
         self.config = args.config 
         self.run_num = args.run_num
         self.world_size = 1
+
+        print("Initializing distributed training...")
         if 'WORLD_SIZE' in os.environ:
             self.world_size = int(os.environ['WORLD_SIZE'])
+        print("World size: {}".format(self.world_size))
 
         # Get local rank first (even if not DDP)
+        print("Getting local rank...")
         if 'LOCAL_RANK' in os.environ:
             self.local_rank = int(os.environ["LOCAL_RANK"])
         else: 
             self.local_rank = 0
+        print("Local rank: {}".format(self.local_rank))
 
         # Select GPU for rank (if mulitgpu)
+        print("Selecting GPU for rank...")
         if torch.cuda.is_available():
             torch.cuda.set_device(self.local_rank)
+        print("GPU selected for rank {}: {}".format(self.local_rank, torch.cuda.current_device()))
 
         # Initialize DDP using NCCL backend
         if self.world_size > 1: # multigpu, use DDP with standard NCCL backend for communication routines
+            print("Initializing DDP with world size {} and local rank {}".format(self.world_size, self.local_rank))
             dist.init_process_group(backend='nccl',
                                     init_method='env://',
                                     timeout=datetime.timedelta(minutes=60))
+            print("DDP initialized with world size {} and local rank {}".format(self.world_size, self.local_rank))
             self.world_rank = dist.get_rank()
         else: 
             self.world_rank =0        
