@@ -44,7 +44,7 @@ def get_data_loader(params, data_location, distributed, train=True, test=False):
     dataset = ShowerDataset(params, data_location, mode=mode)
 
     # Make sure point is in FV if not augmenting samples (for testing)
-    if dataset._ndlar_fv_cut == True and dataset._augment_samples == False:
+    if dataset._ndlar_fv_cut == True and dataset._datalike == True:
         print("Applying FV cut for unaugmented testing/validation samples.")
         keep_indices = dataset._build_fv_subset()
         dataset = Subset(dataset, keep_indices)
@@ -249,6 +249,7 @@ class ShowerDataset(Dataset):
         self._train_logE = params.train_logE  # Whether to take log of energy for training targets (for better training stability)
 
         self._ndlar_nue_profile = params.ndlar_nue_profile # just look at ndlar nu-e scatter-like showers
+        self._datalike = params.datalike # is sample supposed to be datalike i.e. pre-augmented? 
 
         # Get min and max bounds for each detector module
         self._min_bounds = self._detector_active_regions[:, 0, :] # Shape (M, 3) where M is the number of detector modules/active volumes
@@ -340,6 +341,11 @@ class ShowerDataset(Dataset):
             event_voxels = voxels_flat[voxels_start:voxels_end]  # Get the voxel array for the event
             positions_cm = np.array(event_voxels[:, :3])  # Get the positions in cm
             energy_per_voxel = np.array(event_voxels[:, 3])  # Get the energy per voxel
+            # Convert datalike samples to "calibrated" energy scale
+            if self._datalike == True:
+                #print("Energy per voxel before calibration:", energy_per_voxel[:5])  # Debugging line to check energy values before calibration
+                energy_per_voxel = energy_per_voxel * ((1/0.67) * (1/0.855))# recombination, lifetime,  corrections used by Francois previously
+                #print("Energy per voxel after calibration:", energy_per_voxel[:5])  # Debugging line to check energy values after calibration
         #print(len(self._larcv_dataset))  # Debugging line to check total number of events in dataset
         #print(f"Loaded event {idx} from file {self._file_list[file_idx]} with event file index {event_local_idx}")  # Debugging line to confirm event loading
 
@@ -399,6 +405,8 @@ class ShowerDataset(Dataset):
         # Convert coords, features, labels, to PyTorch tensors
         coords = torch.from_numpy(coords).contiguous()  # Keep as int32 for voxel indices
         features = torch.from_numpy(features).contiguous()  # Already float32
+
+
         combined_data = torch.cat([coords.float(), features], dim=1)  # Convert coords to float only for concatenation
 
         #true_KE_initial_tensor = torch.tensor(true_KE_initial / 1000.0, dtype=torch.float32) # Convert to GeV
@@ -488,6 +496,7 @@ class ShowerDataset(Dataset):
             - start_pos: the sampled start position
             - rotation_matrix: the sampled rotation matrix
         '''
+        
         # Get segment positions in correct format -- extraneous for LARCV format
         #segment_positions = np.array([segments['x'], segments['y'], segments['z']]).T # Shape (N, 3) where N is the number of segments
         #segment_energy = np.array([segments['dE']]).T  # Shape (N, 1) where N is the number of segments
@@ -819,8 +828,8 @@ class ShowerDataset(Dataset):
     # Method to build subset of points in fv
     def _build_fv_subset(self):
 
-        if self._augment_samples == True:
-            print("Augmentation is enabled. Not building FV subset.")
+        if self._datalike == False:
+            print("Non-datalike dataset. Not building FV subset.")
             return None
         
         keep_indices = []

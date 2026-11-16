@@ -66,6 +66,7 @@ default: &default
   energy_scaled: 1000.0
   # Energy scaled to /1000 for training stability
   augment_samples: !!bool True
+  datalike: !!bool False
 
 
 # Variations on the default config for different training and evaluation scenarios

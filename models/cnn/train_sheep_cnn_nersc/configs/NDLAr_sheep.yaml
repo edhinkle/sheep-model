@@ -12,7 +12,7 @@ default: &default
   feature_size: 1
   allow_bias: !!bool False
   # optimization
-  lr: 0.0001
+  lr: 0.00001
   lr_epochs_low: 40
   lr_epochs_high: 300
   lr_start_factor: 0.1
@@ -29,7 +29,7 @@ default: &default
   save_checkpoint: !!bool True
   # data locations
   train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TRAIN/'
-  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/' #'/global/cfs/cdirs/dune/users/drielsma/sheep/nu-on-e/' #nue_noff_noshield/' #
+  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/' #'/global/cfs/cdirs/dune/users/drielsma/sheep/nue_noff_noshield/' # nu-on-e/''/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/' 
   val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/VALIDATION/'
   train_files: 1600
   val_files: 200
@@ -120,7 +120,7 @@ default: &default
   electrons_in_sample: !!bool True
   event_vertex_in_fv: !!bool False #TODO: Fix so this can be used
   particle_start_in_fv: !!bool True
-  energy_threshold: 0.200 # MeV
+  energy_threshold: 0.100 # MeV
   set_energy_threshold: !!bool False
   #log train and val predictions
   log_train_preds: !!bool False
@@ -128,6 +128,7 @@ default: &default
   energy_scaled: 1000.0
   # Energy scaled to /1000 for training stability
   augment_samples: !!bool True
+  datalike: !!bool False
 
 # Variations on the default config for different training and evaluation scenarios
 mse_lin:
