@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --time=2:30:00
+#SBATCH --time=1:10:00
 #SBATCH --constraint=gpu
 #SBATCH --account=dune
 #SBATCH --qos=regular
@@ -7,7 +7,6 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --cpu-bind=cores
 #SBATCH --job-name=sheep-dl-100k-l1-log-NDLAr
 #SBATCH --image=deeplearnphysics/larcv2:ub22.04-cuda12.1-pytorch2.4.0-larndsim
 #SBATCH --module=cvmfs,gpu,nccl-2.18
@@ -15,7 +14,7 @@
 
 config_file=./configs/NDLAr_sheep.yaml
 config="l1_log"
-run_num="L1-LogEnergyScale-100kSample-NDLArTest-HDF5-256bs-200keVThreshold"
+run_num="L1-LogEnergyScale-100kSample-NDLArTest-HDF5-256bs-100keVThreshold_AdamW1e-4-LRSchedulerLowerLR"
 
 # this is the path to your local env for libs on top of the container
 # here we have created a local dir in our ~/.local/perlmutter path

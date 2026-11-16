@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
-#SBATCH --job-name=sheep-dl-500k-l1-log-vefrac-and-log-e-loss-2x2Electrons-AdamW1e-4-TestLR
+#SBATCH --job-name=sheep-dl-500k-mse-log-loss-2x2Electrons-AdamW1e-4-TestLR
 #SBATCH --image=deeplearnphysics/larcv2:ub22.04-cuda12.1-pytorch2.4.0-larndsim
 #SBATCH --module=cvmfs,gpu,nccl-2.18
 #SBATCH --output=shifter_job_log_%j.out
@@ -16,8 +16,11 @@ config_file=./configs/2x2_sheep.yaml
 #config="l1_log_with_VE_frac"
 #run_num="L1-LogEnergyScale-NEW500kSample-2x2Electrons-3200bs-1000vbs-AdamW1e-4-TestLR-VEFracAndLogELoss_Test3"
 
-config="l1_log"
-run_num="L1-LogEnergyScale-NEW500kSample-2x2Electrons-3200bs-1000vbs-AdamW1e-4-TestLR"
+#config="l1_lin"
+#run_num="L1-LinEnergyScale-NEW500kSample-2x2Electrons-3200bs-1000vbs-AdamW1e-4-TestLR"
+
+config="mse_log"
+run_num="MSE-LogEnergyScale-NEW500kSample-2x2Electrons-3200bs-1000vbs-AdamW1e-4-TestLR"
 
 #config="l1_lin"
 #run_num="L1-LinEnergyScale-NEW500kSample-2x2Electrons-3200bs-1000vbs-VEFracTarget-WDTEST-AdamW0"
