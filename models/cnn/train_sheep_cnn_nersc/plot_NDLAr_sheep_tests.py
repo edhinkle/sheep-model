@@ -185,8 +185,8 @@ class TestedSheepNDLAr():
             maxval = np.max(np.array([self.labels.max(), self.preds.max()]))+5
             y_eq_x = np.linspace(minval-5,maxval+5, 100)
             ax.plot(y_eq_x, y_eq_x, 'k' '--', alpha=0.7, label="Perfect Prediction")
-            ax.set_xlim(minval,maxval)
-            ax.set_ylim(minval,maxval)
+            #ax.set_xlim(minval,maxval)
+            #ax.set_ylim(minval,maxval)
             res = linregress(self.labels, self.preds)
             fitted_line = res.slope * y_eq_x + res.intercept
             ax.plot(y_eq_x, fitted_line, color='rebeccapurple', label='Linear Best Fit', alpha=0.9, linewidth=1.5)
@@ -457,15 +457,15 @@ class TestedSheepNDLAr():
             ax_main.legend(fontsize=11)
             ax_main.set_xlim(-2, 2.3)
             #ax_main.set_yscale('log')
-            #ax_main.set_ylim(1e-4, 0.5)
+            ax_main.set_ylim(1e-4, 0.2)
             ax_main.set_ylabel(f"Fraction of Test Events / {bin_width:.2f}")
             ax_main.set_xlabel("Test Event Energy Resolution")
-            ax=plt.gca()
+            #ax=plt.gca()
             #ax_main.text(0.8, 0.23, r"$\mathbf{Mean:}$"+f"{cb_params_pred[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_pred[3]:.2f}\n"+r"$\mathbf{Skew:}$"+f"{self.pred_res_total_skew:.2f}\n"+r"$\mathbf{Kurtosis:}$"+f"{self.pred_res_total_kurtosis:.2f}", fontsize=12, verticalalignment='top', color='sienna')
-            ax_main.text(0.8, 0.2, r"$\mathbf{Mean:}$"+f"{loc:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{scale:.2f}\n"+r"$\mathbf{DoF:}$"+f"{df:.2f}\n", fontsize=12, verticalalignment='top', color='sienna')
-            ax_main.text(0.8, 0.1, r"$\mathbf{Mean:}$"+f"{cb_params_vis[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_vis[3]:.2f}\n"+r"$\mathbf{\alpha:}$"+f"{cb_params_vis[0]:.2f}\n"+r"$\mathbf{n:}$"+f"{cb_params_vis[1]:.2f}", fontsize=12, verticalalignment='top', color='blue')
+            ax_main.text(0.95, 0.188, r"$\mathbf{Mean:}$"+f"{loc:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{scale:.2f}\n"+r"$\mathbf{DoF:}$"+f"{df:.2f}\n", fontsize=12, verticalalignment='top', color='sienna')
+            ax_main.text(0.95, 0.138, r"$\mathbf{Mean:}$"+f"{cb_params_vis[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_vis[3]:.2f}\n"+r"$\mathbf{\alpha:}$"+f"{cb_params_vis[0]:.2f}\n"+r"$\mathbf{n:}$"+f"{cb_params_vis[1]:.2f}", fontsize=12, verticalalignment='top', color='blue')
             #ax_main.text(-1.88, 0.267, f"PRELIMINARY", fontsize=18, verticalalignment='top', color='black', alpha=0.35, fontweight='bold')
-            ax_main.text(-1.88, 0.267, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
+            ax_main.text(-1.88, 0.17, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
 
             # --- Residual plot ---
             # Expected values from CB fits, evaluated at bin centers
@@ -657,15 +657,15 @@ class TestedSheepNDLAr():
             ax_main.legend(fontsize=11)
             ax_main.set_xlim(-2, 2.3)
             #ax_main.set_yscale('log')
-            #ax_main.set_ylim(1e-4, 0.5)
+            ax_main.set_ylim(1e-4, 0.2)
             ax_main.set_ylabel(f"Fraction of Test Events / {bin_width:.2f}")
             ax_main.set_xlabel("Test Event Energy Resolution")
-            ax=plt.gca()
+            #ax=plt.gca()
             #ax_main.text(0.8, 0.23, r"$\mathbf{Mean:}$"+f"{cb_params_pred[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_pred[3]:.2f}\n"+r"$\mathbf{Skew:}$"+f"{self.pred_res_total_skew:.2f}\n"+r"$\mathbf{Kurtosis:}$"+f"{self.pred_res_total_kurtosis:.2f}", fontsize=12, verticalalignment='top', color='sienna')
-            ax_main.text(0.8, 0.2, r"$\mathbf{Mean:}$"+f"{loc:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{scale:.2f}\n"+r"$\mathbf{DoF:}$"+f"{df:.2f}\n", fontsize=12, verticalalignment='top', color='sienna')
-            ax_main.text(0.8, 0.1, r"$\mathbf{Mean:}$"+f"{cb_params_vis[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_vis[3]:.2f}\n"+r"$\mathbf{\alpha:}$"+f"{cb_params_vis[0]:.2f}\n"+r"$\mathbf{n:}$"+f"{cb_params_vis[1]:.2f}", fontsize=12, verticalalignment='top', color='blue')
+            ax_main.text(0.95, 0.188, r"$\mathbf{Mean:}$"+f"{loc:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{scale:.2f}\n"+r"$\mathbf{DoF:}$"+f"{df:.2f}\n", fontsize=12, verticalalignment='top', color='sienna')
+            ax_main.text(0.95, 0.138, r"$\mathbf{Mean:}$"+f"{cb_params_vis[2]:.2f}\n"+r"$\mathbf{Std Dev:}$"+f"{cb_params_vis[3]:.2f}\n"+r"$\mathbf{\alpha:}$"+f"{cb_params_vis[0]:.2f}\n"+r"$\mathbf{n:}$"+f"{cb_params_vis[1]:.2f}", fontsize=12, verticalalignment='top', color='blue')
             #ax_main.text(-1.88, 0.267, f"PRELIMINARY", fontsize=18, verticalalignment='top', color='black', alpha=0.35, fontweight='bold')
-            ax_main.text(-1.88, 0.267, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
+            ax_main.text(-1.88, 0.17, self.version, fontsize=12, verticalalignment='top', color='black', alpha=0.8, fontweight='bold')
 
             # --- Residual plot ---
             # Expected values from CB fits, evaluated at bin centers
