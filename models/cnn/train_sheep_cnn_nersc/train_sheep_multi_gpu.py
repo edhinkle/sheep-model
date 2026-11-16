@@ -100,7 +100,7 @@ class Trainer():
         if self.world_rank == 0 and self.params['resuming']==False:
             with open(self.params['log_path'], 'w') as f:
                 writer = csv.writer(f)
-                writer.writerow(['epoch', 'train_iter', 'train_loss', 'val_loss', 'train_time', 'val_time', 'train_avg_active_pixels', 'val_avg_active_pixels'])
+                writer.writerow(['epoch', 'train_iter', 'train_loss', 'val_loss', 'train_time', 'val_time', 'total_time', 'train_avg_active_pixels', 'val_avg_active_pixels'])
 
             # Set up batch norm stats logging to file
             with open(self.params['batch_stats_log_path'], 'w') as f:
@@ -303,7 +303,7 @@ class Trainer():
                     self.save_checkpoint(self.params.checkpoint_path, is_best=is_best_loss)
                     with open(self.params['log_path'], 'a', newline='') as f:
                         writer = csv.writer(f)
-                        writer.writerow([self.epoch, self.iters, self.logs['train_loss'], self.logs['val_loss'], tr_time, val_time, self.logs['train_avg_active_pixels'], self.logs['val_avg_active_pixels'],])
+                        writer.writerow([self.epoch, self.iters, self.logs['train_loss'], self.logs['val_loss'], tr_time, val_time, time.time()-start, self.logs['train_avg_active_pixels'], self.logs['val_avg_active_pixels'],])
                     # Save batch norm stats to separate log file
                     with open(self.params['batch_stats_log_path'], 'a', newline='') as f:
                         writer = csv.writer(f)
