@@ -1,0 +1,11 @@
+default: &default
+  csv_test_file_end: "_log_test.csv" #"_test_NUE_VoxelMetrics_FVOnly_ScaledVoxels.csv"
+  main_dir: '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/outputs/'
+  version: "L1 Loss, log(E) Target, 2x2 Electrons"
+  test_config: "test_l1_log"
+  train_config: "l1_log"
+  run_num: L1-LogEnergyScale-NEW500kSample-2x2Electrons-3200bs-1000vbs-AdamW1e-4-TestLR #"L1-LogEnergyScale-100kSample-NDLArTest-HDF5-256bs-100keVThreshold_AdamW1e-4-LRScheduler"
+  checkpoint_file: ckpt_epoch_195_iters_24500_best.tar #"ckpt_epoch_150_iters_47112_best.tar"
+  num_energy_bins: 20
+  num_ve_frac_bins: 20
+  max_energy: 2000 #15000 # GeV
