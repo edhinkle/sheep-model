@@ -1,0 +1,266 @@
+default: &default
+  num_data_workers: 32
+  # model
+  reps: 2
+  depth: 11
+  filters: 32
+  input_kernel: 7
+  coord_conv: !!bool True
+  pool_mode: 'sum'
+  spatial_size: 1745
+  num_input: 4
+  feature_size: 1
+  allow_bias: !!bool False
+  # optimization
+  lr: 0.00001
+  lr_epochs_low: 40
+  lr_epochs_high: 300
+  lr_start_factor: 0.1
+  lr_min: 0.000001
+  lr_decay_gamma: 0.975
+  weight_decay: 0.0001
+  optimizer: 'AdamW'
+  max_epochs: 200
+  batch_size: 256
+  valid_batch_size: 256
+  bn_momentum: 0.01
+  # misc
+  log_to_screen: !!bool True
+  save_checkpoint: !!bool True
+  # data locations
+  train_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TRAIN/'
+  test_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/' #'/global/cfs/cdirs/dune/users/drielsma/sheep/nue_noff_noshield/' # nu-on-e/''/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/TEST/' 
+  val_path: '/pscratch/sd/e/ehinkle/nd_ana/sheep_single_shower/NDLAR_ELECTRON_SAMPLES/HDF5/VALIDATION/'
+  train_files: 1600
+  val_files: 200
+  test_files: 200
+  # detector-based data augmentation
+  beam_dir: [0, 0,1] # https://github.com/DUNE/2x2_sim/blob/d984481a8499882b5721729f4eae379aa237e124/run-genie/flux/GNuMIFlux.xml#L240-L242
+  detector_active_regions: [[[-349.00,   -148.00,   -248.00  ],
+                             [-253.00,     148.00,  -152.00  ]],
+                            [[-349.00,   -148.00,   -147.00 ],
+                             [-253.00,     148.00,  -53.00  ]],
+                            [[-349.00,   -148.00,   -48.00 ],
+                             [-253.00,     148.00,  48.00  ]],
+                            [[-349.00,   -148.00,   53.00 ],
+                             [-253.00,     148.00,  147.00  ]],
+                            [[-349.00,   -148.00,   152.00 ],
+                             [-253.00,     148.00,  248.00  ]],
+                            [[-248.00,   -148.00,   -248.00  ],
+                             [-152.00,     148.00,  -152.00  ]],
+                            [[-248.00,   -148.00,   -147.00 ],
+                             [-152.00,     148.00,  -53.00  ]],
+                            [[-248.00,   -148.00,   -48.00 ],
+                             [-152.00,     148.00,  48.00  ]],
+                            [[-248.00,   -148.00,   53.00 ],
+                             [-152.00,     148.00,  147.00  ]],
+                            [[-248.00,   -148.00,   152.00 ],
+                             [-152.00,     148.00,  248.00  ]],
+                            [[-147.00,   -148.00,   -248.00  ],
+                             [ -53.00,     148.00,  -152.00  ]],
+                            [[-147.00,   -148.00,   -147.00 ],
+                             [ -53.00,     148.00,  -53.00  ]],
+                            [[-147.00,   -148.00,   -48.00 ],
+                             [ -53.00,     148.00,  48.00  ]],
+                            [[-147.00,   -148.00,   53.00 ],
+                             [ -53.00,     148.00,  147.00  ]],
+                            [[-147.00,   -148.00,   152.00 ],
+                             [ -53.00,     148.00,  248.00  ]],
+                            [[ -48.00,   -148.00,   -248.00  ],
+                             [  48.00,     148.00,  -152.00  ]],
+                            [[ -48.00,   -148.00,   -147.00 ],
+                             [  48.00,     148.00,  -53.00  ]],
+                            [[ -48.00,   -148.00,   -48.00 ],
+                             [  48.00,     148.00,  48.00  ]],
+                            [[ -48.00,   -148.00,   53.00 ],
+                             [  48.00,     148.00,  147.00  ]],
+                            [[ -48.00,   -148.00,   152.00 ],
+                             [  48.00,     148.00,  248.00  ]],
+                            [[  53.00,   -148.00,   -248.00  ],
+                             [ 147.00,     148.00,  -152.00  ]],
+                            [[  53.00,   -148.00,   -147.00 ],
+                             [ 147.00,     148.00,  -53.00  ]],
+                            [[  53.00,   -148.00,   -48.00 ],
+                             [ 147.00,     148.00,  48.00  ]],
+                            [[  53.00,   -148.00,   53.00 ],
+                             [ 147.00,     148.00,  147.00  ]],
+                            [[  53.00,   -148.00,   152.00 ],
+                             [ 147.00,     148.00,  248.00  ]],
+                            [[ 152.00,   -148.00,   -248.00  ],
+                             [ 248.00,     148.00,  -152.00  ]],
+                            [[ 152.00,   -148.00,   -147.00 ],
+                             [ 248.00,     148.00,  -53.00  ]],
+                            [[ 152.00,   -148.00,   -48.00 ],
+                             [ 248.00,     148.00,  48.00  ]],
+                            [[ 152.00,   -148.00,   53.00 ],
+                             [ 248.00,     148.00,  147.00  ]],
+                            [[ 152.00,   -148.00,   152.00 ],
+                             [ 248.00,     148.00,  248.00  ]],
+                            [[ 253.00,   -148.00,   -248.00  ],
+                             [ 349.00,     148.00,  -152.00  ]],
+                            [[ 253.00,   -148.00,   -147.00 ],
+                             [ 349.00,     148.00,  -53.00  ]],
+                            [[ 253.00,   -148.00,   -48.00 ],
+                             [ 349.00,     148.00,  48.00  ]],
+                            [[ 253.00,   -148.00,   53.00 ],
+                             [ 349.00,     148.00,  147.00  ]],
+                            [[ 253.00,   -148.00,   152.00 ],
+                             [ 349.00,     148.00,  248.00  ]]]
+  random_seed: 0
+  voxel_size: [0.4, 0.4, 0.4]
+  min_visible_energy: 2.0
+  inner_wall_fv_cut: 5.0
+  outer_wall_fv_cut: 50.0
+  ds_wall_fv_cut: 150.0
+  ndlar_fv_cut: !!bool True
+  ndlar_nue_profile: !!bool True
+  nue_profile_file: "/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/nue_properties.csv"
+  # photons vs. electrons
+  photons_in_sample: !!bool False
+  electrons_in_sample: !!bool True
+  event_vertex_in_fv: !!bool False #TODO: Fix so this can be used
+  particle_start_in_fv: !!bool True
+  energy_threshold: 0.100 # MeV
+  set_energy_threshold: !!bool False
+  #log train and val predictions
+  log_train_preds: !!bool False
+  log_val_preds: !!bool False
+  energy_scaled: 1000.0
+  # Energy scaled to /1000 for training stability
+  augment_samples: !!bool True
+  datalike: !!bool False
+
+# Variations on the default config for different training and evaluation scenarios
+mse_lin:
+  <<: *default
+  loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+weighted_mse_lin:
+  <<: *default
+  loss_fn: 'WeightedMSELoss'
+  train_logE: !!bool False
+
+mse_log:
+  <<: *default
+  loss_fn: 'MSELoss'
+  train_logE: !!bool True
+
+l1_lin:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+weighted_l1_lin:
+  <<: *default
+  loss_fn: 'WeightedL1Loss'
+  train_logE: !!bool False
+
+l1_lin_wd1e-4:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.0001
+
+l1_lin_wd1e-5:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.00001
+
+l1_lin_wd1e-3:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.001
+
+l1_log:
+  <<: *default
+  loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+l1_log_with_VE_frac:
+  <<: *default
+  loss_fn: 'LogEandVEFracL1Loss'
+  train_logE: !!bool True
+
+huber_lin:
+  <<: *default
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool False
+
+huber_log:
+  <<: *default  
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool True
+
+# Configs for testing the trained model on the test set, with some modifications for stability and speed
+test: &test # inherit configs from the alias default
+  <<: *default
+  test_batch_size: 100
+  # Energy scaled to /1000 for training stability
+  energy_scaled: 1000.0
+
+test_mse_lin:
+  <<: *test
+  loss_fn: 'MSELoss'
+  train_logE: !!bool False
+
+test_weighted_mse_lin:
+  <<: *test
+  loss_fn: 'WeightedMSELoss'
+  train_logE: !!bool False
+
+test_mse_log:
+  <<: *test
+  loss_fn: 'MSELoss'
+  train_logE: !!bool True
+
+test_l1_lin:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+
+test_l1_lin_wd1e-3:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.001
+
+test_l1_lin_wd1e-4:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.0001
+
+test_l1_lin_wd1e-5:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool False
+  weight_decay: 0.00001
+
+test_weighted_l1_lin:
+  <<: *test
+  loss_fn: 'WeightedL1Loss'
+  train_logE: !!bool False
+
+test_l1_log:
+  <<: *test
+  loss_fn: 'L1Loss'
+  train_logE: !!bool True
+
+test_l1_log_with_VE_frac:
+  <<: *test
+  loss_fn: 'LogEandVEFracL1Loss'
+  train_logE: !!bool True
+
+test_huber_lin:
+  <<: *test
+  loss_fn: 'HuberLoss'
+  train_logE: !!bool False
+
+test_huber_log:
+  <<: *test
+  loss_fn: 'HuberLoss'    
+  train_logE: !!bool True
+
