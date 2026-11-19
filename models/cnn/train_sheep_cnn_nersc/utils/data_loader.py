@@ -1,7 +1,4 @@
 # Modeled after: https://github.com/NERSC/nersc-dl-multigpu/blob/main/utils/data_loader.py
-
-from curses import meta
-
 import torch
 from torch.utils.data import Subset
 from torch.utils.data import DataLoader, Dataset, get_worker_info

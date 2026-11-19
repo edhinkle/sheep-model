@@ -9,7 +9,8 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 import torch.multiprocessing as mp
 import numpy as np
-sys.path.insert(0, '/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/sheep-model/models/cnn/train_sheep_cnn_nersc/utils/')
+pwd = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, pwd+'/utils/')
 from utils.parse_yaml import ParseYAML
 from utils.data_loader import get_data_loader
 from utils.custom_loss import WeightedMSELoss, WeightedL1Loss, LogEandVEFracL1Loss
@@ -66,18 +67,23 @@ class Trainer():
 
         # Set cuDNN settings after selecting device
         torch.backends.cudnn.benchmark = True
-        
+
+        # Set up logs
         self.log_to_screen = (self.world_rank==0)
         if torch.cuda.is_available():
             self.device = torch.device(f"cuda:{self.local_rank}")
         else:
             self.device = torch.device('cpu')
         self.params = params
+
+        # Log train and validation predictions to file during training -- usually only desirable if debugging
         self.log_train_preds = params.log_train_preds
         self.log_val_preds = params.log_val_preds
-        print("running on rank {} with world size {}".format(self.world_rank, self.world_size))
+
+        print("Running on rank {} with world size {}".format(self.world_rank, self.world_size))
 
 
+    # Helper function to initialize experiment directory and log/checkpoint paths
     def init_exp_dir(self, exp_dir):
         if self.world_rank==0:
             if not os.path.isdir(exp_dir):
@@ -111,14 +117,12 @@ class Trainer():
             if self.log_train_preds == True:
                 with open(self.params['train_pred_log_path'], 'w') as f:
                     writer = csv.writer(f)
-                    #writer.writerow(['idx', 'label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
                     writer.writerow(['label', 'prediction'])
 
             # Set up validation prediction logging to file
             if self.log_val_preds == True:
                 with open(self.params['val_pred_log_path'], 'w') as f:
                     writer = csv.writer(f)
-                    #writer.writerow(['idx', 'label', 'prediction', 'visible_energy', 've_frac', 'mg_frac', 'oob_frac', 'start_position', 'rotation_matrix'])
                     writer.writerow(['label', 'prediction'])
 
         self.params['global_batch_size'] = self.params.batch_size
@@ -130,24 +134,26 @@ class Trainer():
         # Must be called before creating any DataLoader workers
         mp.set_sharing_strategy('file_system')
 
-        # get the dataloaders
+        # Get the dataloaders
         self.train_data_loader, self.train_sampler = get_data_loader(self.params, self.params.train_path, dist.is_initialized(), train=True)
         #self.test_data_loader, self.test_sampler = get_data_loader(self.params, self.params.test_path, dist.is_initialized(), train=False)
         self.val_data_loader, _ = get_data_loader(self.params, self.params.val_path, dist.is_initialized(), train=False)
 
-        # get the model
+        # Get the model
         self.model = models.sheep_cnn.sheep_cnn(self.params).to(self.device, non_blocking=True)
-        # convert batch norm layers to sync batch norm for distributed training
+
+        # Convert batch norm layers to sync batch norm for distributed training
         if dist.is_initialized():
             self.model = ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(self.model)
         for name, module in self.model.named_modules():
             if isinstance(module, ME.MinkowskiSyncBatchNorm):
                 module.register_forward_hook(models.sheep_cnn.bn_hook(name))
 
+        # Print total parameters in the model
         total_params = sum(p.numel() for p in self.model.parameters())
         print(f"Total parameters: {total_params:,}")
 
-        # distributed wrapper for data parallel
+        # Distributed wrapper for data parallel
         if dist.is_initialized():
             # Get model ready for distributed training
             self.model = DistributedDataParallel(self.model,
@@ -161,8 +167,7 @@ class Trainer():
             if self.world_rank == 0 and self.log_to_screen:
                 print("Train loader lengths per rank:", [int(t.item()) for t in world_lens])
 
-
-        # set an optimizer and learning rate scheduler
+        # Set an optimizer and learning rate scheduler
         optimizer_fn = getattr(optim, self.params.optimizer)
         self.optimizer = optimizer_fn(self.model.parameters(), lr=self.params.lr, weight_decay=self.params.weight_decay)
         self.schedulerLinearLR = lr_scheduler.LinearLR(self.optimizer, start_factor=self.params.lr_start_factor, end_factor=1.0, total_iters=self.params.lr_epochs_low)
@@ -172,7 +177,6 @@ class Trainer():
                                                    milestones=[self.params.lr_epochs_low]
                                                   )
         #self.schedulerConstantLR = lr_scheduler.ConstantLR(self.optimizer, factor=self.params.lr_start_factor, total_iters=self.params.lr_epochs_low)
-        #self.schedulerExponentialLR = lr_scheduler.ExponentialLR(self.optimizer, gamma=self.params.lr_decay_gamma)
         #self.scheduler = self.schedulerConstantLR
 
         # set loss functions
@@ -189,7 +193,7 @@ class Trainer():
         elif self.params.loss_fn == 'HuberLoss':
             self.loss_func = torch.nn.HuberLoss()
 
-        # checkpointing
+        # Checkpointing
         self.iters = 0
         self.startEpoch = 0
         if self.params.resuming:
@@ -222,11 +226,9 @@ class Trainer():
                 print("Validation dataset epoch set to {}".format(self.val_data_loader.dataset._epoch))
             start = time.time()
 
-            # training
+            # Training
             if self.log_train_preds == True:
-                #tr_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.train_one_epoch()
                 tr_time, self.labels, self.predictions = self.train_one_epoch()
-                #print("Start positions:", self.start_positions)
                 if self.params.train_logE == True:
                     self.labels = np.exp(self.labels)
                     self.predictions = np.exp(self.predictions)
@@ -244,18 +246,14 @@ class Trainer():
                     if self.world_rank == 0:
                         with open(self.params['train_pred_log_path'], 'a') as f:
                             writer = csv.writer(f)
-                            #writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
                             writer.writerow([self.labels[i], self.predictions[i]])
 
                 if dist.is_initialized():
                     dist.barrier()  # <-- align all ranks following training on one epoch
 
-
-            # validation
+            # Validation
             if self.log_val_preds == True:
-                #val_time, self.labels, self.predictions, self.visible_energy, self.ve_frac, self.mg_frac, self.oob_frac, self.start_positions, self.rotation_matrices, self.idx = self.val_one_epoch()
                 val_time, self.labels, self.predictions = self.val_one_epoch()
-                #print("Start positions:", self.start_positions)
                 if self.params.train_logE == True:
                     self.labels = np.exp(self.labels)
                     self.predictions = np.exp(self.predictions)
@@ -274,19 +272,18 @@ class Trainer():
                         with open(self.params['val_pred_log_path'], 'a') as f:
                             writer = csv.writer(f)
                             writer.writerow([self.labels[i], self.predictions[i]])
-                            #writer.writerow([self.idx[i], self.labels[i], self.predictions[i], self.visible_energy[i], self.ve_frac[i], self.mg_frac[i], self.oob_frac[i], self.start_positions[i], self.rotation_matrices[i]])
             
                 if dist.is_initialized():
                     dist.barrier()  # <-- align all ranks following training on one epoch
 
 
             start_after_val = time.time()
-            # learning rate scheduler
+            # Learning rate scheduler
             self.scheduler.step()
             for param_group in self.optimizer.param_groups:
                 print("Learning rate: {}".format(param_group['lr']))
 
-            # keep track of best model according to validation loss
+            # Keep track of best model according to validation loss
             if self.logs['val_loss'] <= best_loss:
                 is_best_loss = True
                 best_loss = self.logs['val_loss']
@@ -296,7 +293,7 @@ class Trainer():
             best_epoch = self.epoch if is_best_loss else best_epoch
             self.logs['best_epoch'] = best_epoch
             
-            # save checkpoint (if best epoch additionally save the best epoch too)
+            # Save checkpoint (if best epoch additionally save the best epoch too)
             if self.params.save_checkpoint:
                 if self.world_rank == 0:
                     #checkpoint at the end of every epoch
@@ -311,14 +308,13 @@ class Trainer():
                         for key in models.sheep_cnn.batch_norm_stats:
                             stats = models.sheep_cnn.batch_norm_stats[key]
                             writer.writerow([self.epoch, key, stats['global_batch_mean'], stats['global_batch_var'], stats['running_mean'], stats['running_var'], stats['momentum']])  # Log the stats for the current epoch
-                        # Reset batch norm stats after logging
+                    # Reset batch norm stats after logging
                     models.sheep_cnn.batch_norm_stats = {}
-            # some print statements
+            # Some print statements
             if self.log_to_screen:
                 print('Time taken for epoch {} is {} sec; with {}/{} in tr/val'.format(self.epoch+1, time.time()-start, tr_time, val_time))
                 print('Time taken after validation for epoch {} is {} sec'.format(self.epoch+1, time.time()-start_after_val))
                 print('Loss = {}, Val loss = {}'.format(self.logs['train_loss'], self.logs['val_loss']))
-
 
     def train_one_epoch(self):
         tr_time = 0
@@ -326,7 +322,7 @@ class Trainer():
         total_train_start_time = time.time()
         self.model.train()
 
-        # buffers for logs
+        # Buffers for logs
         logs_buff = torch.zeros((1), dtype=torch.float32, device=self.device)
         logs_buff_two = torch.zeros((1), dtype=torch.float32, device=self.device)
         self.logs['train_loss'] = logs_buff[0].view(-1)
@@ -337,88 +333,56 @@ class Trainer():
         if self.log_train_preds == True:
             labels = []
             preds = []
-            #visible_energy = []
-            #ve_frac = []
-            #mg_frac = []
-            #oob_frac = []
-            #start_positions = []
-            #rotation_matrices = []
-            #idxs = []
 
         end_of_last_step = time.time()
         for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx, minE, maxE, meanE, medE, numVox) in enumerate(self.train_data_loader):
             self.iters += 1
-            #print("Inputs: ", inputs.size())
             #targets = VE_frac
             inputs, targets, VE_frac = inputs.to(self.device, non_blocking=True), targets.to(self.device, non_blocking=True), VE_frac.to(self.device, non_blocking=True)
-            #print("Active pixels:",inputs.shape[0])
             tr_start = time.time()
 
-            #self.model.zero_grad()
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
-            print(f"rank {self.world_rank} batch {i} outputs.shape={outputs.shape}, targets.shape={targets.shape}")
+            #print(f"rank {self.world_rank} batch {i} outputs.shape={outputs.shape}, targets.shape={targets.shape}")
 
             if self.log_train_preds == True:
-                #VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
-                #outputs = self.model(inputs)
                 labels.append(targets.detach().reshape(-1))
                 preds.append(outputs.detach().reshape(-1))
-                #ve_frac.append(VE_frac.detach().reshape(-1))
-                #mg_frac.append(MG_frac.detach().reshape(-1))
-                #oob_frac.append(OOB_frac.detach().reshape(-1))
-                #start_positions.append(start_pos.detach())
-                #rotation_matrices.append(rot_mat.detach())
-                #idxs.append(idx.detach())
-
-                # Get VE 
-                #batch_ids = inputs[:,0].long()
-                #visible_energy_values = inputs[:,4]
-                #assert isinstance(visible_energy_values, torch.Tensor)
-                #num_batches = int(batch_ids.max().item()) + 1
-                #visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
-                #visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
-                #visible_energy.append(visible_energy_sums.detach())
 
             if self.params.loss_fn == 'LogEandVEFracL1Loss':
                 loss = self.loss_func(outputs, targets, VE_frac)
             else:
                 loss = self.loss_func(outputs, targets)
 
-            #if self.log_to_screen:
-            #    print("Train loss batch {}: {}".format(i, loss.item()))
             loss.backward()
             self.optimizer.step()
 
             # Look at memory usage
-            if i % 1 == 0:
+            if i % 100 == 0:
                 # current usage (bytes)
                 a = torch.cuda.memory_allocated()
                 r = torch.cuda.memory_reserved()  # "cached" by allocator
                 m = torch.cuda.max_memory_allocated()
                 print(f"step {i}: alloc={a/1e6:.1f} MB res={r/1e6:.1f} MB max={m/1e6:.1f} MB")
  
-            # add all the minibatch losses
-            #print("Training loss:", loss.detach())
+            # Add all the minibatch losses
             self.logs['train_loss'] += loss.detach()
             self.logs['train_avg_active_pixels'] += inputs.shape[0]
-            #print("Total active pixels:", self.logs['train_avg_active_pixels'])
 
             tr_time += time.time() - tr_start
             load_inputs_time += tr_start - end_of_last_step
             end_of_last_step = time.time()
 
-            #print(f"Allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB")
-            #print(f"Reserved:  {torch.cuda.memory_reserved()/1e9:.2f} GB")
-        #print("Train loss before data loader adjustment:", self.logs['train_loss'])
-        #print("Train active pixels before data loader adjustment:", self.logs['train_avg_active_pixels'])
-        print("Input loading time for epoch {}: {} sec".format(self.epoch+1, load_inputs_time))
+            if self.log_to_screen and i % 100 == 0:
+                print(f"Allocated: {torch.cuda.memory_allocated()/1e9:.2f} GB")
+                print(f"Reserved:  {torch.cuda.memory_reserved()/1e9:.2f} GB")
+            if self.log_to_screen:
+                print("Input loading time for epoch {}: {} sec".format(self.epoch+1, load_inputs_time))
         self.logs['train_loss'] /= len(self.train_data_loader)
-        #print("Train loss after data loader adjustment:", self.logs['train_loss'])
         self.logs['train_avg_active_pixels'] /= len(self.train_data_loader)
         print("Train Data loader length:", len(self.train_data_loader))
 
-        # reset the peak counter to measure next epoch separately
+        # Reset the peak counter to measure next epoch separately
         torch.cuda.reset_max_memory_allocated()
 
         logs_to_reduce = ['train_loss', 'train_avg_active_pixels']
@@ -432,7 +396,6 @@ class Trainer():
         print("Total training time for epoch {}: {} sec".format(self.epoch+1, tr_time_total))
 
         if self.log_train_preds == True:
-            #return tr_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
             return tr_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy()
         else:
             return tr_time
@@ -451,13 +414,6 @@ class Trainer():
         if self.log_val_preds == True:
             labels = []
             preds = []
-            #visible_energy = []
-            #ve_frac = []
-            #mg_frac = []
-            #oob_frac = []
-            #start_positions = []
-            #rotation_matrices = []
-            #idxs = []
 
         with torch.no_grad():
             for i, (inputs, targets, VE_frac, MG_frac, OOB_frac, start_pos, rot_mat, idx, minE, maxE, meanE, medE, numVox) in enumerate(self.val_data_loader):
@@ -469,33 +425,14 @@ class Trainer():
                 else:
                     loss = self.loss_func(outputs, targets)
 
-                #if self.log_to_screen:
-                #    print("Val loss batch {}: {}".format(i, loss.item()))
                 self.logs['val_loss'] += loss.detach()
                 self.logs['val_avg_active_pixels'] += inputs.shape[0] 
 
 
                 if self.log_val_preds == True:
-                    #VE_frac, MG_frac, OOB_frac, start_pos, rot_mat = VE_frac.to(self.device), MG_frac.to(self.device), OOB_frac.to(self.device), start_pos.to(self.device), rot_mat.to(self.device)
                     #outputs = self.model(inputs)
                     labels.append(targets.detach().reshape(-1))
                     preds.append(outputs.detach().reshape(-1))
-                    #ve_frac.append(VE_frac.detach().reshape(-1))
-                    #mg_frac.append(MG_frac.detach().reshape(-1))
-                    #oob_frac.append(OOB_frac.detach().reshape(-1))
-                    #start_positions.append(start_pos.detach())
-                    #rotation_matrices.append(rot_mat.detach())
-                    #idxs.append(idx.detach())
-
-                    # Get VE 
-                    #batch_ids = inputs[:,0].long()
-                    #visible_energy_values = inputs[:,4]
-                    #assert isinstance(visible_energy_values, torch.Tensor)
-                    #num_batches = int(batch_ids.max().item()) + 1
-                    #visible_energy_sums = torch.zeros(num_batches, device=batch_ids.device)
-                    #visible_energy_sums = visible_energy_sums.scatter_add(0, batch_ids, visible_energy_values)
-                    #visible_energy.append(visible_energy_sums.detach())
-
 
         self.logs['val_loss'] /= len(self.val_data_loader)
         self.logs['val_avg_active_pixels'] /= len(self.val_data_loader)
@@ -508,7 +445,6 @@ class Trainer():
         val_time = time.time() - val_start
 
         if self.log_val_preds == True:
-            #return val_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy(), torch.concat(visible_energy).cpu().numpy(), torch.concat(ve_frac).cpu().numpy(), torch.concat(mg_frac).cpu().numpy(), torch.concat(oob_frac).cpu().numpy(), torch.concat(start_positions).cpu().numpy(), torch.concat(rotation_matrices).cpu().numpy(), torch.concat(idxs).cpu().numpy()
             return val_time, torch.concat(labels).cpu().numpy(), torch.concat(preds).cpu().numpy()
         else:
             return val_time
@@ -517,16 +453,15 @@ class Trainer():
         if not model:
             model = self.model
 
-        # Save persistent checkpoints for every tenth epoch
-        if self.epoch % 10 == 0 and self.epoch > 0:
-            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict(), 'scheduler_state_dict': (self.scheduler.state_dict() if self.scheduler is not None else None)}, checkpoint_path.replace('.tar', '_epoch_{}_iters{}.tar'.format(self.epoch, self.iters)))
-        
         # Always save the latest checkpoint (overwritten every epoch)
         torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict(), 'scheduler_state_dict': (self.scheduler.state_dict() if self.scheduler is not None else None)}, checkpoint_path)
         
         # If best epoch, save a copy of the best checkpoint
         if is_best:
             torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict(), 'scheduler_state_dict': (self.scheduler.state_dict() if  self.scheduler is not None else None)}, checkpoint_path.replace('.tar', '_epoch_{}_iters_{}_best.tar'.format(self.epoch, self.iters)))
+        # Save persistent checkpoints for every twentieth epoch (but don't duplicate if it's the best epoch)
+        elif self.epoch % 20 == 0 and self.epoch > 0:
+            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict(), 'scheduler_state_dict': (self.scheduler.state_dict() if  self.scheduler is not None else None)}, checkpoint_path.replace('.tar', '_epoch_{}_iters{}.tar'.format(self.epoch, self.iters)))
 
     def restore_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.local_rank)) 
@@ -548,7 +483,7 @@ class Trainer():
         total = 0
         for p in self.model.parameters():
             total += p.abs().sum().item()
-        print("Checkpoint loaded: epoch {}, iters {}, total abs param sum {}".format(self.startEpoch, self.iters, total))
+        print("Checkpoint loaded: Epoch {}, Iters {}, Total Abs Param Sum {}".format(self.startEpoch, self.iters, total))
 
 if __name__ == '__main__':
     # parsers for any cmd line args
